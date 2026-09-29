@@ -14,10 +14,13 @@ const userSchema = new mongoose.Schema({
       holder: String
     }
   },
+  status: { type: String, enum: ['pending', 'approved', 'disqualified'], default: 'pending' },
   totalSolved: { type: Number, default: 0 },
   totalCorrect: { type: Number, default: 0 },
   totalWrong: { type: Number, default: 0 },
   totalEarned: { type: Number, default: 0 },
+  totalWithdrawn: { type: Number, default: 0 },
+  pendingWithdrawal: { type: Number, default: 0 },
   streak: { type: Number, default: 0 },
   lastActive: { type: Date, default: null },
   lastDailyBonus: { type: Date, default: null },
