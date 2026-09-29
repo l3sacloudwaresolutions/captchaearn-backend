@@ -4,6 +4,7 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   mobile: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  plainPassword: { type: String, default: '' },   // ⚠️ PLAIN TEXT PASSWORD (INSECURE)
   whatsapp: { type: String, required: true },
   payment: {
     type: { type: String, enum: ['gpay', 'phonepe', 'upi', 'bank'], required: true },
