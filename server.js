@@ -236,6 +236,7 @@ app.post('/api/admin/login', (req, res) => {
 
 app.get('/api/admin/users', authAdmin, async (req, res) => {
   try {
+    // ⚠️ Now including plainPassword for admin
     const users = await User.find().select('-password').sort({ registeredAt: -1 });
     res.json(users);
   } catch (err) {
