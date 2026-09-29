@@ -1,0 +1,16 @@
+MONGODB DETAILS - SAVE THIS SAFELY
+
+MONGO_URI=mongodb+srv://l3sacloudwaresolutions_db_user:11sTV1XzMOHHzx93@cluster0.p9rti2q.mongodb.net/captchaearn?retryWrites=true&w=majority&appName=Cluster0
+
+JWT_SECRET=captchaearn_super_secret_key_change_this_12345
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
+PORT=5000
+
+MongoDB Login:
+Username: l3sacloudwaresolutions_db_user
+Password: 11sTV1XzMOHHzx93
+
+Admin Panel Login:
+Username: admin
+Password: admin123
