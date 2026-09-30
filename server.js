@@ -557,7 +557,105 @@ app.post('/api/admin/settings/ads', authAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+// ============ PAYMENT SETTINGS (Admin can change) ============
+app.get('/api/payment-settings', async (req, res) => {
+  try {
+    const upiId = await Settings.findOne({ key: 'upiId' });
+    const upiName = await Settings.findOne({ key: 'upiName' });
+    const whatsapp = await Settings.findOne({ key: 'whatsappNumber' });
+    res.json({
+      upiId: upiId ? upiId.value : 'example@upi',
+      upiName: upiName ? upiName.value : 'TypeCaptchaToEarn',
+      whatsapp: whatsapp ? whatsapp.value : '919999999999'
+    });
+  } catch (err) {
+    res.json({ upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919999999999' });
+  }
+});
 
+app.post('/api/admin/payment-settings', authAdmin, async (req, res) => {
+  try {
+    const { upiId, upiName, whatsapp } = req.body;
+    if (upiId) await Settings.findOneAndUpdate({ key: 'upiId' }, { value: upiId }, { upsert: true });
+    if (upiName) await Settings.findOneAndUpdate({ key: 'upiName' }, { value: upiName }, { upsert: true });
+    if (whatsapp) await Settings.findOneAndUpdate({ key: 'whatsappNumber' }, { value: whatsapp }, { upsert: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ USER MARKS PAYMENT DONE ============
+app.post('/api/mark-payment-done', authUser, async (req, res) => {
+  try {
+    const { planId, txnNote } = req.body;
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.pendingPlan) return res.status(400).json({ error: 'Pehle plan purchase karein' });
+    if (user.pendingPlan !== planId) return res.status(400).json({ error: 'Plan mismatch' });
+
+    user.paymentDone = true;
+    user.paymentNote = txnNote || '';
+    user.paymentDoneAt = new Date();
+    await user.save();
+
+    res.json({ success: true, message: 'Payment marked as done! Ab WhatsApp pe screenshot bhejein.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: VERIFY PAYMENT & APPROVE ============
+app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.pendingPlan) return res.status(400).json({ error: 'Koi pending plan nahi' });
+
+    const planId = user.pendingPlan;
+    const now = new Date();
+    const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    user.plan = planId;
+    user.pendingPlan = null;
+    user.planStartDate = now;
+    user.planEndDate = endDate;
+    user.paymentDone = false;
+    user.totalPaidForPremium = (user.totalPaidForPremium || 0) + (PLANS[planId]?.price || 0);
+    await user.save();
+
+    res.json({ success: true, message: 'Premium approved!', user });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: REJECT PLAN ============
+app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    user.pendingPlan = null;
+    user.paymentDone = false;
+    user.planPaymentId = null;
+    await user.save();
+
+    res.json({ success: true, message: 'Plan rejected' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: PENDING PREMIUM LIST ============
+app.get('/api/admin/pending-premiums', authAdmin, async (req, res) => {
+  try {
+    const users = await User.find({ pendingPlan: { $ne: null } }).select('-password').sort({ paymentDoneAt: -1 });
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 // ============ START ============
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
