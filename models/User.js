@@ -18,6 +18,9 @@ const userSchema = new mongoose.Schema({
   planStartDate: { type: Date, default: null },
   planEndDate: { type: Date, default: null },
   planPaymentId: { type: String, default: null },
+  paymentDone: { type: Boolean, default: false },
+  paymentNote: { type: String, default: '' },
+  paymentDoneAt: { type: Date, default: null },
   totalPaidForPremium: { type: Number, default: 0 },
   
   // Daily tracking
