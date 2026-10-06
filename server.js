@@ -56,6 +56,50 @@ const DAILY_BONUS = 1;
 const MIN_WITHDRAWAL = 100;
 
 // ============ GET PLANS FROM DB OR DEFAULT ============
+// ============ PLAN CONFIG ============
+const DEFAULT_PLANS = {
+  free: { 
+    id: 'free', 
+    name: 'Free', 
+    price: 0, 
+    period: 'Forever', 
+    rate: 0.025, 
+    dailyLimit: 100,
+    features: ['100 captchas daily', '₹0.025 per captcha', 'Basic support', 'Weekly payout']
+  },
+  premium: { 
+    id: 'premium', 
+    name: 'Premium', 
+    price: 199, 
+    period: 'month', 
+    rate: 0.05, 
+    dailyLimit: 99999,
+    features: ['♾️ Unlimited captchas', '💰 2x earning (₹0.05)', '⚡ Priority support', '🚀 Fast processing']
+  },
+  premium_plus: { 
+    id: 'premium_plus', 
+    name: 'Premium+', 
+    price: 500, 
+    period: 'month', 
+    rate: 0.10, 
+    dailyLimit: 99999,
+    features: ['♾️ Unlimited captchas', '💰 4x earning (₹0.10)', '⚡ 24/7 support', '🚀 Instant processing', '🎁 Daily bonus ₹5']
+  }
+};
+
+// ============ GET PLANS FROM DB OR DEFAULT ============
+async function getPlans() {
+  try {
+    const plansDoc = await Settings.findOne({ key: 'plans' });
+    if (plansDoc && plansDoc.value) {
+      return plansDoc.value;
+    }
+    await Settings.findOneAndUpdate({ key: 'plans' }, { value: DEFAULT_PLANS }, { upsert: true });
+    return DEFAULT_PLANS;
+  } catch (err) {
+    return DEFAULT_PLANS;
+  }
+}
 async function getPlans() {
   try {
     const plansDoc = await Settings.findOne({ key: 'plans' });
@@ -623,6 +667,7 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
     const plans = await getPlans();
     res.json({ plans: plans });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -643,53 +688,79 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: OVERVIEW ============
-app.get('/api/admin/overview', authAdmin, async (req, res) => {
+// ============ ADMIN: APPROVE PLAN ============
+app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
-    const users = await User.find().select('-password');
-    const today = new Date().toISOString().split('T')[0];
-    const activeToday = users.filter(u => u.history.some(h => h.date === today)).length;
-    const totalSolved = users.reduce((s, u) => s + u.totalSolved, 0);
-    const totalPayout = users.reduce((s, u) => s + u.totalEarned, 0);
-    const pendingUsers = users.filter(u => u.status === 'pending').length;
-    const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
-    const pendingPlans = users.filter(u => u.pendingPlan).length;
-    const premiumUsers = users.filter(u => u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
-    const premiumIncome = users.reduce((s, u) => s + (u.totalPaidForPremium || 0), 0);
+    const { planId } = req.body;
+    const plans = await getPlans();
     
-    res.json({
-      totalUsers: users.length, activeToday, totalSolved,
-      totalPayout: parseFloat(totalPayout.toFixed(2)),
-      pendingUsers, pendingWithdrawals, pendingPlans,
-      premiumUsers, premiumIncome
-    });
+    if (!plans[planId] || planId === 'free') {
+      return res.status(400).json({ error: 'Invalid plan' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const now = new Date();
+    let startFrom = now;
+    if (user.plan === planId && user.planEndDate && new Date(user.planEndDate) > now) {
+      startFrom = new Date(user.planEndDate);
+    }
+    const endDate = new Date(startFrom.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    user.plan = planId;
+    user.planStartDate = now;
+    user.planEndDate = endDate;
+    user.planApprovedAt = now;
+    user.pendingPlan = null;
+    user.paymentMarked = false;
+    user.subscriptionExpired = false;
+    user.totalPaidForPremium = (user.totalPaidForPremium || 0) + plans[planId].price;
+    await user.save();
+
+    res.json({ success: true, message: `${plans[planId].name} plan activated!` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: REJECT PLAN ============
+app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    user.pendingPlan = null;
+    user.paymentMarked = false;
+    await user.save();
+    
+    res.json({ success: true, message: 'Plan request rejected' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ============ ADMIN: ACTIVITY ============
-app.get('/api/admin/activity', authAdmin, async (req, res) => {
+// ============ ADMIN: SET PLAN MANUALLY ============
+app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   try {
-    const users = await User.find().select('history');
-    const map = {};
-    users.forEach(u => {
-      (u.history || []).forEach(h => {
-        if (!map[h.date]) map[h.date] = { solved: 0, correct: 0, wrong: 0, earned: 0, users: new Set() };
-        map[h.date].solved += h.solved;
-        map[h.date].correct += h.correct;
-        map[h.date].wrong += h.wrong;
-        map[h.date].earned += h.earned;
-        map[h.date].users.add(String(u._id));
-      });
-    });
-    const result = Object.keys(map).sort().reverse().slice(0, 60).map(date => ({
-      date, solved: map[date].solved, correct: map[date].correct,
-      wrong: map[date].wrong, earned: parseFloat(map[date].earned.toFixed(3)),
-      activeUsers: map[date].users.size
-    }));
-    res.json(result);
+    const { plan } = req.body;
+    const plans = await getPlans();
+    if (!plans[plan]) return res.status(400).json({ error: 'Invalid plan' });
+    
+    const now = new Date();
+    const endDate = plan === 'free' ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
+    const user = await User.findByIdAndUpdate(req.params.id, {
+      plan: plan,
+      planStartDate: plan === 'free' ? null : now,
+      planEndDate: endDate,
+      subscriptionExpired: false
+    }, { new: true }).select('-password');
+    
+    res.json({ success: true, user });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
