@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const User = require('./models/User');
@@ -17,15 +18,98 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('❌ MongoDB Error:', err.message));
 
-// ============ CONFIG ============
-const PLANS = {
-  free: { name: 'Free', price: 0, rate: 0.025, dailyLimit: 50 },
-  premium: { name: 'Premium', price: 99, rate: 0.05, dailyLimit: 9999 },
-  premium_plus: { name: 'Premium+', price: 199, rate: 0.10, dailyLimit: 9999 }
+// ============ PLAN CONFIG (Admin editable) ============
+const DEFAULT_PLANS = {
+  free: { 
+    id: 'free', 
+    name: 'Free', 
+    price: 0, 
+    period: 'Forever', 
+    rate: 0.025, 
+    dailyLimit: 100,
+    features: ['100 captchas daily', '₹0.025 per captcha', 'Basic support', 'Weekly payout'],
+    color: 'gray'
+  },
+  premium: { 
+    id: 'premium', 
+    name: 'Premium', 
+    price: 199, 
+    period: 'month', 
+    rate: 0.05, 
+    dailyLimit: 99999,
+    features: ['♾️ Unlimited captchas', '💰 2x earning (₹0.05)', '⚡ Priority support', '🚀 Fast processing'],
+    color: 'purple'
+  },
+  premium_plus: { 
+    id: 'premium_plus', 
+    name: 'Premium+', 
+    price: 500, 
+    period: 'month', 
+    rate: 0.10, 
+    dailyLimit: 99999,
+    features: ['♾️ Unlimited captchas', '💰 4x earning (₹0.10)', '⚡ 24/7 support', '🚀 Instant processing', '🎁 Daily bonus ₹5'],
+    color: 'gold'
+  }
 };
 
 const DAILY_BONUS = 1;
 const MIN_WITHDRAWAL = 100;
+
+// ============ GET PLANS FROM DB OR DEFAULT ============
+async function getPlans() {
+  try {
+    const plansDoc = await Settings.findOne({ key: 'plans' });
+    if (plansDoc && plansDoc.value) {
+      return plansDoc.value;
+    }
+    // Save defaults
+    await Settings.findOneAndUpdate({ key: 'plans' }, { value: DEFAULT_PLANS }, { upsert: true });
+    return DEFAULT_PLANS;
+  } catch (err) {
+    return DEFAULT_PLANS;
+  }
+}
+
+// ============ CHECK IF SUBSCRIPTION EXPIRED ============
+async function checkAndUpdateSubscription(user) {
+  if (user.plan === 'free') return user;
+  if (!user.planEndDate) return user;
+  
+  const now = new Date();
+  if (now > new Date(user.planEndDate)) {
+    // Subscription expired - reset to free
+    user.plan = 'free';
+    user.planStartDate = null;
+    user.planEndDate = null;
+    user.planAutoRenew = false;
+    user.subscriptionExpired = true;
+    user.expiredAt = now;
+    await user.save();
+  }
+  return user;
+}
+
+// ============ GET RATE FOR USER ============
+async function getUserRate(user) {
+  const plans = await getPlans();
+  if (user.plan === 'free') return plans.free.rate;
+  // Check if expired
+  if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
+    return plans.free.rate;
+  }
+  return plans[user.plan]?.rate || plans.free.rate;
+}
+
+// ============ GET DAILY LIMIT FOR USER ============
+async function getUserDailyLimit(user) {
+  const plans = await getPlans();
+  if (user.plan === 'free') return plans.free.dailyLimit;
+  // Check if expired
+  if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
+    return plans.free.dailyLimit;
+  }
+  return plans[user.plan]?.dailyLimit || plans.free.dailyLimit;
+}
 
 // ============ AUTH MIDDLEWARE ============
 function authUser(req, res, next) {
@@ -58,33 +142,26 @@ app.get('/api/settings/public', async (req, res) => {
   try {
     const marquee = await Settings.findOne({ key: 'marquee' });
     const ads = await Settings.findOne({ key: 'ads' });
-    res.json({ marquee: marquee ? marquee.value : '', ads: ads ? ads.value : [] });
+    const plans = await getPlans();
+    res.json({
+      marquee: marquee ? marquee.value : '',
+      ads: ads ? ads.value : [],
+      plans: plans
+    });
   } catch (err) {
-    res.json({ marquee: '', ads: [] });
+    res.json({ marquee: '', ads: [], plans: DEFAULT_PLANS });
   }
 });
 
-// ============ PLANS ============
-app.get('/api/plans', (req, res) => {
-  res.json({
-    plans: [
-      {
-        id: 'free', name: 'Free', price: 0, period: 'Forever',
-        rate: 0.025, dailyLimit: 50,
-        features: ['50 captchas daily', '₹0.025 per captcha', 'Basic support', 'Weekly payout']
-      },
-      {
-        id: 'premium', name: 'Premium', price: 99, period: 'month',
-        rate: 0.05, dailyLimit: 'Unlimited',
-        features: ['♾️ Unlimited captchas', '💰 2x earning (₹0.05)', '⚡ Priority support', '🚀 Fast processing']
-      },
-      {
-        id: 'premium_plus', name: 'Premium+', price: 199, period: 'month',
-        rate: 0.10, dailyLimit: 'Unlimited',
-        features: ['♾️ Unlimited captchas', '💰 4x earning (₹0.10)', '⚡ 24/7 support', '🚀 Instant processing', '🎁 Daily bonus ₹5']
-      }
-    ]
-  });
+// ============ PUBLIC PLANS ============
+app.get('/api/plans', async (req, res) => {
+  try {
+    const plans = await getPlans();
+    const plansArray = Object.values(plans);
+    res.json({ plans: plansArray });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // ============ REGISTER ============
@@ -101,12 +178,14 @@ app.post('/api/register', async (req, res) => {
     if (exists) return res.status(400).json({ error: 'Yeh mobile number pehle se registered hai' });
 
     const hashedPass = await bcrypt.hash(password, 10);
-    const user = await User.create({ 
-      name, mobile, whatsapp, payment, 
-      password: hashedPass, status: 'pending', plan: 'free'
+    const user = await User.create({
+      name, mobile, whatsapp, payment,
+      password: hashedPass,
+      status: 'pending',
+      plan: 'free'
     });
 
-    res.json({ success: true, message: 'Registration successful! Admin approval ka wait karein.', userId: user._id });
+    res.json({ success: true, message: 'Registration successful! Admin approval ke baad aap work start kar sakte hain.', userId: user._id });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -126,8 +205,11 @@ app.post('/api/login', async (req, res) => {
     if (!match) return res.status(400).json({ error: 'Invalid mobile ya password' });
 
     if (user.status === 'disqualified') {
-      return res.status(403).json({ error: 'Aapka account disqualified hai.' });
+      return res.status(403).json({ error: 'Aapka account disqualified hai. Support se contact karein.' });
     }
+
+    // Check subscription expiry
+    await checkAndUpdateSubscription(user);
 
     const today = new Date().toDateString();
     const lastActive = user.lastActive ? new Date(user.lastActive).toDateString() : null;
@@ -139,15 +221,30 @@ app.post('/api/login', async (req, res) => {
     }
 
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '365d' });
+    
+    // Get current rate & limit
+    const currentRate = await getUserRate(user);
+    const dailyLimit = await getUserDailyLimit(user);
+
     res.json({
-      success: true, token,
+      success: true,
+      token,
       user: {
-        id: user._id, name: user.name, mobile: user.mobile,
-        status: user.status, plan: user.plan,
-        isPremium: user.isPremiumActive ? user.isPremiumActive() : false,
-        totalSolved: user.totalSolved, totalCorrect: user.totalCorrect,
-        totalWrong: user.totalWrong, totalEarned: user.totalEarned,
-        totalWithdrawn: user.totalWithdrawn, pendingWithdrawal: user.pendingWithdrawal,
+        id: user._id,
+        name: user.name,
+        mobile: user.mobile,
+        status: user.status,
+        plan: user.plan,
+        planEndDate: user.planEndDate,
+        subscriptionExpired: user.subscriptionExpired || false,
+        currentRate: currentRate,
+        dailyLimit: dailyLimit,
+        totalSolved: user.totalSolved,
+        totalCorrect: user.totalCorrect,
+        totalWrong: user.totalWrong,
+        totalEarned: user.totalEarned,
+        totalWithdrawn: user.totalWithdrawn,
+        pendingWithdrawal: user.pendingWithdrawal,
         streak: user.streak
       }
     });
@@ -157,63 +254,35 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ============ PROFILE ============
+// ============ GET PROFILE ============
 app.get('/api/profile', authUser, async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('-password');
+    let user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    // Check subscription
+    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    await checkAndUpdateSubscription(user);
+    
+    const currentRate = await getUserRate(user);
+    const dailyLimit = await getUserDailyLimit(user);
+    const plans = await getPlans();
     
     const userObj = user.toObject();
-    
-    // Calculate plan info
-    const isPremiumActive = user.isPremiumActive ? user.isPremiumActive() : false;
-    const currentRate = user.getRate ? user.getRate() : 0.025;
-    const dailyLimit = user.getDailyLimit ? user.getDailyLimit() : 50;
-    
-    userObj.isPremium = isPremiumActive;
+    userObj.isPremium = user.plan !== 'free' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
     userObj.currentRate = currentRate;
-    userObj.earningRate = currentRate;
-    userObj.dailyLimit = dailyLimit === Infinity ? 9999 : dailyLimit;
-    userObj.remaining = Math.max(0, (dailyLimit === Infinity ? 9999 : dailyLimit) - (user.todayCaptchas || 0));
+    userObj.dailyLimit = dailyLimit;
+    userObj.subscriptionExpired = wasExpired || user.subscriptionExpired || false;
     
-    const planNames = { free: 'Free', premium: 'Premium', premium_plus: 'Premium+' };
-    userObj.planDisplay = planNames[user.plan] || 'Free';
+    // Calculate remaining captchas
+    const today = new Date().toISOString().split('T')[0];
+    const todayRec = (user.history || []).find(h => h.date === today);
+    const todaySolved = todayRec ? todayRec.solved : 0;
+    userObj.todaySolved = todaySolved;
+    userObj.remaining = Math.max(0, dailyLimit - todaySolved);
+    userObj.planFeatures = plans[user.plan]?.features || plans.free.features;
     
     res.json(userObj);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ============ PURCHASE PREMIUM ============
-app.post('/api/purchase-premium', authUser, async (req, res) => {
-  try {
-    const { planId } = req.body;
-    const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
-
-    if (!PLANS[planId] || planId === 'free') {
-      return res.status(400).json({ error: 'Invalid plan' });
-    }
-
-    if (user.pendingPlan) {
-      return res.status(400).json({ error: 'Aapki ek premium request already pending hai' });
-    }
-
-    const plan = PLANS[planId];
-
-    user.pendingPlan = planId;
-    user.planPaymentId = 'ORD' + Date.now();
-    await user.save();
-
-    res.json({
-      success: true,
-      message: `Purchase request bhej di! ₹${plan.price} ka payment karein aur admin approval ka wait karein.`,
-      orderId: user.planPaymentId,
-      amount: plan.price
-    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -224,26 +293,47 @@ app.post('/api/purchase-premium', authUser, async (req, res) => {
 app.post('/api/submit-captcha', authUser, async (req, res) => {
   try {
     const { userAnswer, correctAnswer } = req.body;
-    const user = await User.findById(req.userId);
+    let user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
 
+    if (user.status !== 'approved') {
+      return res.status(403).json({ error: 'Account approve nahi hua' });
+    }
+
+    // Check subscription expiry
+    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    await checkAndUpdateSubscription(user);
+    
+    if (wasExpired) {
+      return res.status(403).json({ 
+        error: 'Your subscription has expired. Please purchase a plan to continue working.',
+        subscriptionExpired: true,
+        plan: user.plan
+      });
+    }
+
+    // Get user's plan settings
+    const plans = await getPlans();
+    const userPlan = plans[user.plan] || plans.free;
+    const currentRate = userPlan.rate;
+    const dailyLimit = userPlan.dailyLimit;
+
+    // Daily limit check
     const today = new Date().toISOString().split('T')[0];
     if (user.todayResetDate !== today) {
       user.todayCaptchas = 0;
       user.todayResetDate = today;
     }
 
-    const dailyLimit = user.getDailyLimit ? user.getDailyLimit() : 50;
     if (user.todayCaptchas >= dailyLimit) {
       return res.status(429).json({
-        error: `Daily limit (${dailyLimit} captchas) khatam! Premium me upgrade karein.`,
-        limitReached: true
+        error: `Daily limit (${dailyLimit} captchas) reached! Upgrade to Premium for unlimited captchas.`,
+        limitReached: true,
+        currentPlan: user.plan
       });
     }
 
     const isCorrect = String(userAnswer).trim().toUpperCase() === String(correctAnswer).trim().toUpperCase();
-    const rate = user.getRate ? user.getRate() : 0.025;
 
     user.totalSolved++;
     user.todayCaptchas++;
@@ -254,6 +344,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     if (!dayRec) {
       dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
       user.history.push(dayRec);
+      
       const lastBonus = user.lastDailyBonus ? new Date(user.lastDailyBonus).toDateString() : null;
       if (lastBonus !== new Date().toDateString()) {
         user.totalEarned += DAILY_BONUS;
@@ -265,26 +356,78 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     dayRec.solved++;
     if (isCorrect) {
       dayRec.correct++;
-      dayRec.earned += rate;
-      user.totalEarned += rate;
+      dayRec.earned += currentRate;
+      user.totalEarned += currentRate;
     } else {
       dayRec.wrong++;
     }
 
     await user.save();
-    
-    const newDailyLimit = user.getDailyLimit ? user.getDailyLimit() : 50;
-    const newRate = user.getRate ? user.getRate() : 0.025;
 
     res.json({
-      success: true, correct: isCorrect, correctAnswer, rate: newRate,
+      success: true,
+      correct: isCorrect,
+      correctAnswer,
+      rate: currentRate,
       totalSolved: user.totalSolved,
+      totalCorrect: user.totalCorrect,
+      totalWrong: user.totalWrong,
       totalEarned: parseFloat(user.totalEarned.toFixed(3)),
       todayEarned: parseFloat(dayRec.earned.toFixed(3)),
       todaySolved: dayRec.solved,
-      dailyLimit: newDailyLimit === Infinity ? 9999 : newDailyLimit,
-      remaining: Math.max(0, (newDailyLimit === Infinity ? 9999 : newDailyLimit) - user.todayCaptchas)
+      todayCaptchas: user.todayCaptchas,
+      dailyLimit: dailyLimit,
+      remaining: Math.max(0, dailyLimit - user.todayCaptchas),
+      plan: user.plan
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ PURCHASE PREMIUM ============
+app.post('/api/purchase-premium', authUser, async (req, res) => {
+  try {
+    const { planId } = req.body;
+    const plans = await getPlans();
+    
+    if (!plans[planId] || planId === 'free') {
+      return res.status(400).json({ error: 'Invalid plan' });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Save pending plan
+    user.pendingPlan = planId;
+    user.pendingPlanRequestedAt = new Date();
+    await user.save();
+
+    res.json({ 
+      success: true, 
+      message: `Your ${plans[planId].name} plan request is pending admin approval.`,
+      planId: planId,
+      planName: plans[planId].name,
+      price: plans[planId].price
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ MARK PAYMENT DONE ============
+app.post('/api/mark-payment-done', authUser, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    user.paymentMarked = true;
+    user.paymentMarkedAt = new Date();
+    await user.save();
+
+    res.json({ success: true, message: 'Payment marked. Please send screenshot on WhatsApp for verification.' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -315,7 +458,7 @@ app.post('/api/withdraw', authUser, async (req, res) => {
     user.pendingWithdrawal += availableBalance;
     await user.save();
 
-    res.json({ success: true, message: 'Withdrawal request submit ho gayi. Admin approve karega.', withdrawal });
+    res.json({ success: true, message: 'Withdrawal request submit ho gayi', withdrawal });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -331,7 +474,18 @@ app.get('/api/my-withdrawals', authUser, async (req, res) => {
   }
 });
 
+// ============ PAYMENT SETTINGS (PUBLIC) ============
+app.get('/api/payment-settings', async (req, res) => {
+  try {
+    const settings = await Settings.findOne({ key: 'payment' });
+    res.json(settings ? settings.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' });
+  } catch (err) {
+    res.json({ upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' });
+  }
+});
+
 // ============ ADMIN ROUTES ============
+
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body;
   if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
@@ -386,47 +540,110 @@ app.delete('/api/admin/user/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: APPROVE PREMIUM PLAN ============
+// ============ ADMIN: APPROVE PLAN PURCHASE ============
 app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
+    const { planId } = req.body;
+    const plans = await getPlans();
+    
+    if (!plans[planId] || planId === 'free') {
+      return res.status(400).json({ error: 'Invalid plan' });
+    }
+
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (!user.pendingPlan) return res.status(400).json({ error: 'Koi pending plan nahi hai' });
 
-    const planId = user.pendingPlan;
     const now = new Date();
-    const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    // If user already has a plan, extend from current end date or now
+    let startFrom = now;
+    if (user.plan === planId && user.planEndDate && new Date(user.planEndDate) > now) {
+      startFrom = new Date(user.planEndDate);
+    }
+    const endDate = new Date(startFrom.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
     user.plan = planId;
-    user.pendingPlan = null;
     user.planStartDate = now;
     user.planEndDate = endDate;
-    user.totalPaidForPremium = (user.totalPaidForPremium || 0) + (PLANS[planId]?.price || 0);
+    user.planApprovedAt = now;
+    user.pendingPlan = null;
+    user.paymentMarked = false;
+    user.subscriptionExpired = false;
+    user.totalPaidForPremium = (user.totalPaidForPremium || 0) + plans[planId].price;
     await user.save();
 
-    res.json({ success: true, message: 'Plan approved!', user });
+    res.json({ success: true, message: `${plans[planId].name} plan activated!`, user: user.toObject() });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// ============ ADMIN: REJECT PLAN PURCHASE ============
 app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     
     user.pendingPlan = null;
-    user.planPaymentId = null;
+    user.paymentMarked = false;
     await user.save();
+    
+    res.json({ success: true, message: 'Plan request rejected' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
-    res.json({ success: true, message: 'Plan rejected' });
+// ============ ADMIN: SET PLAN MANUALLY ============
+app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
+  try {
+    const { plan } = req.body;
+    const plans = await getPlans();
+    if (!plans[plan]) return res.status(400).json({ error: 'Invalid plan' });
+    
+    const now = new Date();
+    const endDate = plan === 'free' ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
+    const user = await User.findByIdAndUpdate(req.params.id, {
+      plan: plan,
+      planStartDate: plan === 'free' ? null : now,
+      planEndDate: endDate,
+      subscriptionExpired: false
+    }, { new: true }).select('-password');
+    
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: GET PLANS ============
+app.get('/api/admin/plans', authAdmin, async (req, res) => {
+  try {
+    const plans = await getPlans();
+    res.json({ plans: plans });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: UPDATE PLANS ============
+app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
+  try {
+    const { plans } = req.body;
+    if (!plans || !plans.free || !plans.premium || !plans.premium_plus) {
+      return res.status(400).json({ error: 'All 3 plans required' });
+    }
+    
+    await Settings.findOneAndUpdate({ key: 'plans' }, { value: plans }, { upsert: true });
+    res.json({ success: true, message: 'Plans updated successfully!' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// ============ ADMIN: OVERVIEW ============
 app.get('/api/admin/overview', authAdmin, async (req, res) => {
   try {
     const users = await User.find().select('-password');
@@ -436,18 +653,22 @@ app.get('/api/admin/overview', authAdmin, async (req, res) => {
     const totalPayout = users.reduce((s, u) => s + u.totalEarned, 0);
     const pendingUsers = users.filter(u => u.status === 'pending').length;
     const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
-    const pendingPremium = users.filter(u => u.pendingPlan).length;
+    const pendingPlans = users.filter(u => u.pendingPlan).length;
+    const premiumUsers = users.filter(u => u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
+    const premiumIncome = users.reduce((s, u) => s + (u.totalPaidForPremium || 0), 0);
     
     res.json({
       totalUsers: users.length, activeToday, totalSolved,
       totalPayout: parseFloat(totalPayout.toFixed(2)),
-      pendingUsers, pendingWithdrawals, pendingPremium
+      pendingUsers, pendingWithdrawals, pendingPlans,
+      premiumUsers, premiumIncome
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// ============ ADMIN: ACTIVITY ============
 app.get('/api/admin/activity', authAdmin, async (req, res) => {
   try {
     const users = await User.find().select('history');
@@ -473,6 +694,7 @@ app.get('/api/admin/activity', authAdmin, async (req, res) => {
   }
 });
 
+// ============ ADMIN: WITHDRAWALS ============
 app.get('/api/admin/withdrawals', authAdmin, async (req, res) => {
   try {
     const withdrawals = await Withdrawal.find().sort({ requestedAt: -1 });
@@ -527,12 +749,17 @@ app.post('/api/admin/reject-withdrawal/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN SETTINGS ============
+// ============ ADMIN: SETTINGS (Marquee + Ads + Payment) ============
 app.get('/api/admin/settings', authAdmin, async (req, res) => {
   try {
     const marquee = await Settings.findOne({ key: 'marquee' });
     const ads = await Settings.findOne({ key: 'ads' });
-    res.json({ marquee: marquee ? marquee.value : '', ads: ads ? ads.value : [] });
+    const payment = await Settings.findOne({ key: 'payment' });
+    res.json({
+      marquee: marquee ? marquee.value : '',
+      ads: ads ? ads.value : [],
+      payment: payment ? payment.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' }
+    });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -557,105 +784,17 @@ app.post('/api/admin/settings/ads', authAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-// ============ PAYMENT SETTINGS (Admin can change) ============
-app.get('/api/payment-settings', async (req, res) => {
-  try {
-    const upiId = await Settings.findOne({ key: 'upiId' });
-    const upiName = await Settings.findOne({ key: 'upiName' });
-    const whatsapp = await Settings.findOne({ key: 'whatsappNumber' });
-    res.json({
-      upiId: upiId ? upiId.value : 'example@upi',
-      upiName: upiName ? upiName.value : 'TypeCaptchaToEarn',
-      whatsapp: whatsapp ? whatsapp.value : '919999999999'
-    });
-  } catch (err) {
-    res.json({ upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919999999999' });
-  }
-});
 
-app.post('/api/admin/payment-settings', authAdmin, async (req, res) => {
+app.post('/api/admin/settings/payment', authAdmin, async (req, res) => {
   try {
-    const { upiId, upiName, whatsapp } = req.body;
-    if (upiId) await Settings.findOneAndUpdate({ key: 'upiId' }, { value: upiId }, { upsert: true });
-    if (upiName) await Settings.findOneAndUpdate({ key: 'upiName' }, { value: upiName }, { upsert: true });
-    if (whatsapp) await Settings.findOneAndUpdate({ key: 'whatsappNumber' }, { value: whatsapp }, { upsert: true });
+    const { payment } = req.body;
+    await Settings.findOneAndUpdate({ key: 'payment' }, { value: payment }, { upsert: true });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ============ USER MARKS PAYMENT DONE ============
-app.post('/api/mark-payment-done', authUser, async (req, res) => {
-  try {
-    const { planId, txnNote } = req.body;
-    const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    if (!user.pendingPlan) return res.status(400).json({ error: 'Pehle plan purchase karein' });
-    if (user.pendingPlan !== planId) return res.status(400).json({ error: 'Plan mismatch' });
-
-    user.paymentDone = true;
-    user.paymentNote = txnNote || '';
-    user.paymentDoneAt = new Date();
-    await user.save();
-
-    res.json({ success: true, message: 'Payment marked as done! Ab WhatsApp pe screenshot bhejein.' });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ============ ADMIN: VERIFY PAYMENT & APPROVE ============
-app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    if (!user.pendingPlan) return res.status(400).json({ error: 'Koi pending plan nahi' });
-
-    const planId = user.pendingPlan;
-    const now = new Date();
-    const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    user.plan = planId;
-    user.pendingPlan = null;
-    user.planStartDate = now;
-    user.planEndDate = endDate;
-    user.paymentDone = false;
-    user.totalPaidForPremium = (user.totalPaidForPremium || 0) + (PLANS[planId]?.price || 0);
-    await user.save();
-
-    res.json({ success: true, message: 'Premium approved!', user });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ============ ADMIN: REJECT PLAN ============
-app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    
-    user.pendingPlan = null;
-    user.paymentDone = false;
-    user.planPaymentId = null;
-    await user.save();
-
-    res.json({ success: true, message: 'Plan rejected' });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ============ ADMIN: PENDING PREMIUM LIST ============
-app.get('/api/admin/pending-premiums', authAdmin, async (req, res) => {
-  try {
-    const users = await User.find({ pendingPlan: { $ne: null } }).select('-password').sort({ paymentDoneAt: -1 });
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
 // ============ START ============
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
