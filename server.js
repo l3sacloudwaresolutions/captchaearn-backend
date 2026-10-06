@@ -671,7 +671,18 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-
+// ============ ADMIN: PENDING PLANS ============
+app.get('/api/admin/pending-plans', authAdmin, async (req, res) => {
+  try {
+    const users = await User.find({ pendingPlan: { $ne: null } })
+      .select('-password')
+      .sort({ pendingPlanRequestedAt: -1 });
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 // ============ ADMIN: UPDATE PLANS ============
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
