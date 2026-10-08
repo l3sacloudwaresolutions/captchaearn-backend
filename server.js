@@ -26,7 +26,6 @@ mongoose.connect(process.env.MONGO_URI, {
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('❌ MongoDB Error:', err.message));
 
-// Reconnect on disconnect
 mongoose.connection.on('disconnected', () => {
   console.log('⚠️ MongoDB disconnected. Reconnecting...');
   setTimeout(() => {
@@ -68,7 +67,6 @@ async function getPlans() {
   }
 }
 
-// ============ HELPER: CHECK SUBSCRIPTION EXPIRY ============
 async function checkAndUpdateSubscription(user) {
   if (user.plan === 'free') return user;
   if (!user.planEndDate) return user;
@@ -100,7 +98,6 @@ async function getUserDailyLimit(user) {
 }
 
 // ============ RATE LIMITING ============
-// General API rate limit - 200 requests per minute
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 200,
@@ -109,14 +106,12 @@ const generalLimiter = rateLimit({
   legacyHeaders: false
 });
 
-// Login/Register rate limit - 10 requests per minute (brute-force protection)
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   message: { error: 'Too many attempts. Please wait 1 minute.' }
 });
 
-// Captcha submit rate limit - 100 requests per minute
 const captchaLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -549,6 +544,48 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
+// ============ ADMIN: ADD BONUS (NEW) ============
+app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
+  try {
+    const { amount } = req.body;
+    const bonusAmount = parseFloat(amount);
+    
+    if (!bonusAmount || bonusAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid bonus amount' });
+    }
+    if (bonusAmount > 10000) {
+      return res.status(400).json({ error: 'Bonus amount too large (max ₹10,000)' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.totalEarned = (user.totalEarned || 0) + bonusAmount;
+    
+    // Add to today's history
+    const today = new Date().toISOString().split('T')[0];
+    let dayRec = user.history.find(h => h.date === today);
+    if (!dayRec) {
+      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
+      user.history.push(dayRec);
+    }
+    dayRec.earned += bonusAmount;
+
+    await user.save();
+
+    res.json({ 
+      success: true, 
+      message: `Bonus ₹${bonusAmount} added to ${user.name}!`,
+      userName: user.name,
+      bonusAmount: bonusAmount,
+      newTotal: user.totalEarned
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/admin/approve-user/:id', authAdmin, async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, { status: 'approved' }, { new: true }).select('-password');
@@ -762,7 +799,6 @@ process.on('unhandledRejection', (err) => {
   console.error('❌ Unhandled Rejection:', err.message || err);
 });
 
-// Express error handler
 app.use((err, req, res, next) => {
   console.error('❌ Express Error:', err.message);
   res.status(500).json({ error: 'Server error' });
@@ -772,13 +808,9 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
-// Server timeout settings
-server.timeout = 30000;           // 30 seconds
-server.keepAliveTimeout = 65000;  // 65 seconds
-server.headersTimeout = 66000;    // 66 seconds
+server.timeout = 30000;
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
-// Startup cleanup
 cleanupOldData();
-
-// Daily cleanup (every 24 hours)
 setInterval(cleanupOldData, 24 * 60 * 60 * 1000);
