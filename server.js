@@ -806,6 +806,147 @@ app.use((err, req, res, next) => {
 
 // ============ START SERVER ============
 const PORT = process.env.PORT || 5000;
+// ============ ADMIN: VIEW USER PASSWORD (NEW) ============
+app.get('/api/admin/user-password/:id', authAdmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('name mobile password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    // Password plain text nahi hai — bcrypt hashed hai
+    // Admin ko batate hain ki yeh hash hai, actual password nahi de sakte
+    res.json({
+      success: true,
+      name: user.name,
+      mobile: user.mobile,
+      passwordHash: user.password,
+      note: 'Passwords are bcrypt hashed for security. Original password cannot be recovered.',
+      canReset: true
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: RESET USER PASSWORD (NEW) ============
+app.post('/api/admin/reset-password/:id', authAdmin, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password min 6 characters' });
+    }
+    
+    const hashedPass = await bcrypt.hash(newPassword, 10);
+    const user = await User.findByIdAndUpdate(
+      req.params.id, 
+      { password: hashedPass }, 
+      { new: true }
+    ).select('name mobile');
+    
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    res.json({ 
+      success: true, 
+      message: `Password reset for ${user.name}`,
+      newPassword: newPassword
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: DEDUCT BALANCE (NEW) ============
+app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
+  try {
+    const { amount, reason } = req.body;
+    const deductAmount = parseFloat(amount);
+    
+    if (!deductAmount || deductAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+    
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const availableBalance = (user.totalEarned || 0) - (user.totalWithdrawn || 0) - (user.pendingWithdrawal || 0);
+    
+    if (deductAmount > availableBalance) {
+      return res.status(400).json({ 
+        error: `Amount exceeds available balance (₹${availableBalance.toFixed(3)})` 
+      });
+    }
+    
+    // Deduct from totalEarned
+    user.totalEarned = parseFloat((user.totalEarned - deductAmount).toFixed(3));
+    
+    // Add to history as negative earning
+    const today = new Date().toISOString().split('T')[0];
+    let dayRec = user.history.find(h => h.date === today);
+    if (!dayRec) {
+      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
+      user.history.push(dayRec);
+    }
+    dayRec.earned -= deductAmount;
+    
+    // Log the deduction
+    if (!user.balanceLogs) user.balanceLogs = [];
+    user.balanceLogs.push({
+      type: 'deduct',
+      amount: deductAmount,
+      reason: reason || 'Admin deduction',
+      date: new Date()
+    });
+    
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: `₹${deductAmount} deducted from ${user.name}`,
+      newBalance: parseFloat(((user.totalEarned || 0) - (user.totalWithdrawn || 0) - (user.pendingWithdrawal || 0)).toFixed(3))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: REVOKE PLAN (NEW) ============
+app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    if (user.plan === 'free') {
+      return res.status(400).json({ error: 'User is already on Free plan' });
+    }
+    
+    user.plan = 'free';
+    user.planStartDate = null;
+    user.planEndDate = null;
+    user.pendingPlan = null;
+    user.subscriptionExpired = true;
+    user.expiredAt = new Date();
+    
+    if (!user.planRevokeLogs) user.planRevokeLogs = [];
+    user.planRevokeLogs.push({
+      revokedPlan: user.plan,
+      reason: reason || 'Admin revoke',
+      date: new Date()
+    });
+    
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: `${user.name}'s premium plan revoked. Reverted to Free plan.`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 server.timeout = 30000;
