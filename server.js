@@ -544,7 +544,7 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: ADD BONUS ============
+// ============ ADMIN: ADD BONUS (Fixed - Syncs with History) ============
 app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
   try {
     const { amount, reason } = req.body;
@@ -560,19 +560,18 @@ app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Add to total earned
+    // 1. Add to total earned
     user.totalEarned = parseFloat(((user.totalEarned || 0) + bonusAmount).toFixed(3));
     
-    // Add to history (IMPORTANT FIX)
+    // 2. Add to history (Recent Activity me dikhne ke liye)
     const today = new Date().toISOString().split('T')[0];
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
       dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
       user.history.push(dayRec);
     }
+    // ⚡ IMPORTANT: Bonus ko earned me add karo
     dayRec.earned = parseFloat(((dayRec.earned || 0) + bonusAmount).toFixed(3));
-    if (!dayRec.bonus) dayRec.bonus = 0;
-    dayRec.bonus = parseFloat(((dayRec.bonus || 0) + bonusAmount).toFixed(3));
 
     await user.save();
 
@@ -581,14 +580,14 @@ app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
       message: `Bonus ₹${bonusAmount} added to ${user.name}!`,
       userName: user.name,
       bonusAmount: bonusAmount,
-      newTotal: user.totalEarned
+      newTotal: user.totalEarned,
+      todayEarned: dayRec.earned
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
-
 app.post('/api/admin/approve-user/:id', authAdmin, async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, { status: 'approved' }, { new: true }).select('-password');
