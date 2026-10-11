@@ -1109,7 +1109,7 @@ app.post('/api/admin/reset-password/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: DEDUCT BALANCE (NEW) ============
+// ============ ADMIN: DEDUCT BALANCE (Fixed - Syncs with History) ============
 app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
   try {
     const { amount, reason } = req.body;
@@ -1130,26 +1130,17 @@ app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
       });
     }
     
-    // Deduct from totalEarned
-    user.totalEarned = parseFloat((user.totalEarned - deductAmount).toFixed(3));
+    // 1. Deduct from totalEarned
+    user.totalEarned = parseFloat(((user.totalEarned || 0) - deductAmount).toFixed(3));
     
-    // Add to history as negative earning
+    // 2. Deduct from history
     const today = new Date().toISOString().split('T')[0];
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
       dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
       user.history.push(dayRec);
     }
-    dayRec.earned -= deductAmount;
-    
-    // Log the deduction
-    if (!user.balanceLogs) user.balanceLogs = [];
-    user.balanceLogs.push({
-      type: 'deduct',
-      amount: deductAmount,
-      reason: reason || 'Admin deduction',
-      date: new Date()
-    });
+    dayRec.earned = parseFloat(((dayRec.earned || 0) - deductAmount).toFixed(3));
     
     await user.save();
     
