@@ -401,27 +401,63 @@ app.post('/api/mark-payment-done', authUser, async (req, res) => {
   }
 });
 
-// ============ WITHDRAW ============
+// ============ WITHDRAW (User Input Amount) ============
 app.post('/api/withdraw', authUser, async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approved nahi hai' });
-    const availableBalance = user.totalEarned - user.totalWithdrawn - user.pendingWithdrawal;
-    if (availableBalance < MIN_WITHDRAWAL) {
-      return res.status(400).json({ error: `Minimum ₹${MIN_WITHDRAWAL} chahiye. Available: ₹${availableBalance.toFixed(3)}` });
+    
+    // Get user-requested amount
+    const requestedAmount = parseFloat(req.body.amount);
+    if (!requestedAmount || requestedAmount <= 0) {
+      return res.status(400).json({ error: 'Valid amount daalein' });
     }
+    
+    const availableBalance = user.totalEarned - user.totalWithdrawn - user.pendingWithdrawal;
+    
+    // Check minimum withdrawal
+    if (requestedAmount < MIN_WITHDRAWAL) {
+      return res.status(400).json({ 
+        error: `Minimum ₹${MIN_WITHDRAWAL} chahiye. Aapne ₹${requestedAmount} maanga.` 
+      });
+    }
+    
+    // Check if requested amount exceeds available balance
+    if (requestedAmount > availableBalance) {
+      return res.status(400).json({ 
+        error: `Amount exceeds available balance (₹${availableBalance.toFixed(3)})` 
+      });
+    }
+    
+    // Check for existing pending request
     const existing = await Withdrawal.findOne({ userId: user._id, status: 'pending' });
     if (existing) return res.status(400).json({ error: 'Ek withdrawal request pehle se pending hai' });
+    
+    // Create withdrawal request with user-requested amount
     const withdrawal = await Withdrawal.create({
-      userId: user._id, userName: user.name, userMobile: user.mobile,
-      amount: availableBalance, paymentType: user.payment.type,
-      paymentValue: user.payment.value, bankDetails: user.payment.bank, status: 'pending'
+      userId: user._id, 
+      userName: user.name, 
+      userMobile: user.mobile,
+      amount: requestedAmount,
+      paymentType: user.payment.type,
+      paymentValue: user.payment.value, 
+      bankDetails: user.payment.bank, 
+      status: 'pending'
     });
-    user.pendingWithdrawal += availableBalance;
+    
+    // Add to pending withdrawal
+    user.pendingWithdrawal = parseFloat(((user.pendingWithdrawal || 0) + requestedAmount).toFixed(3));
     await user.save();
-    res.json({ success: true, message: 'Withdrawal request submit ho gayi', withdrawal });
+    
+    res.json({ 
+      success: true, 
+      message: `₹${requestedAmount} withdrawal request submit ho gayi`,
+      withdrawal,
+      availableBalance: parseFloat((availableBalance - requestedAmount).toFixed(3))
+    });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
