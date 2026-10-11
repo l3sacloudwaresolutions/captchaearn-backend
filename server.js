@@ -803,7 +803,123 @@ app.use((err, req, res, next) => {
   console.error('❌ Express Error:', err.message);
   res.status(500).json({ error: 'Server error' });
 });
+// ============ VISITOR TRACKING (Real-time Views) ============
+app.post('/api/track-visit', async (req, res) => {
+  try {
+    const { visitorId } = req.body;
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Find or create visitor stats
+    let stats = await Settings.findOne({ key: 'visitorStats' });
+    
+    if (!stats) {
+      stats = await Settings.create({
+        key: 'visitorStats',
+        value: {
+          totalViews: 0,
+          todayViews: 0,
+          lastResetDate: today,
+          uniqueVisitors: [],
+          todayUniqueVisitors: [],
+          hourlyViews: {}
+        }
+      });
+    }
+    
+    const data = stats.value;
+    
+    // Reset daily counters if new day
+    if (data.lastResetDate !== today) {
+      data.todayViews = 0;
+      data.todayUniqueVisitors = [];
+      data.lastResetDate = today;
+    }
+    
+    // Increment views
+    data.totalViews = (data.totalViews || 0) + 1;
+    data.todayViews = (data.todayViews || 0) + 1;
+    
+    // Track unique visitors
+    if (visitorId && !data.uniqueVisitors.includes(visitorId)) {
+      data.uniqueVisitors.push(visitorId);
+      // Keep only last 10000 to avoid bloat
+      if (data.uniqueVisitors.length > 10000) {
+        data.uniqueVisitors = data.uniqueVisitors.slice(-10000);
+      }
+    }
+    
+    // Track today's unique visitors
+    if (visitorId && !data.todayUniqueVisitors.includes(visitorId)) {
+      data.todayUniqueVisitors.push(visitorId);
+    }
+    
+    // Hourly views tracking
+    const currentHour = new Date().getHours();
+    const hourKey = `${today}_${currentHour}`;
+    if (!data.hourlyViews) data.hourlyViews = {};
+    data.hourlyViews[hourKey] = (data.hourlyViews[hourKey] || 0) + 1;
+    
+    // Keep only last 48 hours of hourly data
+    const hourKeys = Object.keys(data.hourlyViews);
+    if (hourKeys.length > 48) {
+      const sortedKeys = hourKeys.sort();
+      const toDelete = sortedKeys.slice(0, hourKeys.length - 48);
+      toDelete.forEach(k => delete data.hourlyViews[k]);
+    }
+    
+    stats.value = data;
+    stats.markModified('value');
+    await stats.save();
+    
+    res.json({
+      success: true,
+      totalViews: data.totalViews,
+      todayViews: data.todayViews,
+      totalUnique: data.uniqueVisitors.length,
+      todayUnique: data.todayUniqueVisitors.length
+    });
+  } catch (err) {
+    console.error('Track visit error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
+// ============ GET VISITOR STATS (Public) ============
+app.get('/api/visitor-stats', async (req, res) => {
+  try {
+    const stats = await Settings.findOne({ key: 'visitorStats' });
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (!stats || !stats.value) {
+      return res.json({
+        totalViews: 0,
+        todayViews: 0,
+        totalUnique: 0,
+        todayUnique: 0,
+        onlineNow: 0
+      });
+    }
+    
+    const data = stats.value;
+    const todayViews = data.lastResetDate === today ? (data.todayViews || 0) : 0;
+    const todayUnique = data.lastResetDate === today ? (data.todayUniqueVisitors?.length || 0) : 0;
+    
+    res.json({
+      totalViews: data.totalViews || 0,
+      todayViews: todayViews,
+      totalUnique: data.uniqueVisitors?.length || 0,
+      todayUnique: todayUnique
+    });
+  } catch (err) {
+    console.error('Visitor stats error:', err);
+    res.json({
+      totalViews: 0,
+      todayViews: 0,
+      totalUnique: 0,
+      todayUnique: 0
+    });
+  }
+});
 // ============ START SERVER ============
 const PORT = process.env.PORT || 5000;
 // ============ ADMIN: VIEW USER PASSWORD (NEW) ============
