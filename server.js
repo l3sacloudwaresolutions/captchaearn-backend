@@ -920,6 +920,141 @@ app.get('/api/visitor-stats', async (req, res) => {
     });
   }
 });
+// ============ ADMIN: GET VISITOR STATS ============
+app.get('/api/admin/visitor-stats', authAdmin, async (req, res) => {
+  try {
+    const stats = await Settings.findOne({ key: 'visitorStats' });
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (!stats || !stats.value) {
+      return res.json({
+        totalViews: 0,
+        todayViews: 0,
+        totalUnique: 0,
+        todayUnique: 0,
+        lastResetDate: today
+      });
+    }
+    
+    const data = stats.value;
+    res.json({
+      totalViews: data.totalViews || 0,
+      todayViews: data.todayViews || 0,
+      totalUnique: data.uniqueVisitors?.length || 0,
+      todayUnique: data.todayUniqueVisitors?.length || 0,
+      lastResetDate: data.lastResetDate || today
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: UPDATE VISITOR STATS ============
+app.post('/api/admin/update-visitor-stats', authAdmin, async (req, res) => {
+  try {
+    const { totalViews, todayViews, totalUnique, todayUnique } = req.body;
+    const today = new Date().toISOString().split('T')[0];
+    
+    let stats = await Settings.findOne({ key: 'visitorStats' });
+    
+    if (!stats) {
+      stats = await Settings.create({
+        key: 'visitorStats',
+        value: {
+          totalViews: 0,
+          todayViews: 0,
+          lastResetDate: today,
+          uniqueVisitors: [],
+          todayUniqueVisitors: [],
+          hourlyViews: {}
+        }
+      });
+    }
+    
+    const data = stats.value;
+    
+    // Update values (admin can set any number)
+    if (totalViews !== undefined) data.totalViews = parseInt(totalViews) || 0;
+    if (todayViews !== undefined) data.todayViews = parseInt(todayViews) || 0;
+    
+    // For unique visitors, we simulate with fake IDs if admin sets higher number
+    if (totalUnique !== undefined) {
+      const targetTotal = parseInt(totalUnique) || 0;
+      const currentCount = data.uniqueVisitors?.length || 0;
+      
+      if (targetTotal > currentCount) {
+        // Add fake visitor IDs to reach target
+        for (let i = currentCount; i < targetTotal; i++) {
+          data.uniqueVisitors.push('admin_fake_' + Date.now() + '_' + i);
+        }
+      } else if (targetTotal < currentCount) {
+        // Remove extra
+        data.uniqueVisitors = data.uniqueVisitors.slice(0, targetTotal);
+      }
+    }
+    
+    if (todayUnique !== undefined) {
+      const targetToday = parseInt(todayUnique) || 0;
+      const currentTodayCount = data.todayUniqueVisitors?.length || 0;
+      
+      if (targetToday > currentTodayCount) {
+        for (let i = currentTodayCount; i < targetToday; i++) {
+          data.todayUniqueVisitors.push('admin_fake_today_' + Date.now() + '_' + i);
+        }
+      } else if (targetToday < currentTodayCount) {
+        data.todayUniqueVisitors = data.todayUniqueVisitors.slice(0, targetToday);
+      }
+    }
+    
+    data.lastResetDate = today;
+    
+    stats.value = data;
+    stats.markModified('value');
+    await stats.save();
+    
+    res.json({
+      success: true,
+      message: 'Visitor stats updated!',
+      stats: {
+        totalViews: data.totalViews,
+        todayViews: data.todayViews,
+        totalUnique: data.uniqueVisitors?.length || 0,
+        todayUnique: data.todayUniqueVisitors?.length || 0
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ ADMIN: RESET VISITOR STATS ============
+app.post('/api/admin/reset-visitor-stats', authAdmin, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    
+    await Settings.findOneAndUpdate(
+      { key: 'visitorStats' },
+      {
+        value: {
+          totalViews: 0,
+          todayViews: 0,
+          lastResetDate: today,
+          uniqueVisitors: [],
+          todayUniqueVisitors: [],
+          hourlyViews: {}
+        }
+      },
+      { upsert: true }
+    );
+    
+    res.json({ success: true, message: 'Visitor stats reset to 0!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 // ============ START SERVER ============
 const PORT = process.env.PORT || 5000;
 // ============ ADMIN: VIEW USER PASSWORD (NEW) ============
