@@ -99,7 +99,6 @@ const DEFAULT_PLANS = {
     ]
   }
 };
-
 const DAILY_BONUS = 1;
 const MIN_WITHDRAWAL = 100;
 
