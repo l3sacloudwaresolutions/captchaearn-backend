@@ -33,10 +33,10 @@ mongoose.connection.on('disconnected', () => {
   }, 5000);
 });
 
-// ============ PLAN CONFIG ============
+// ============ PLAN CONFIG (🔥 4 PLANS) ============
 const DEFAULT_PLANS = {
-  free: { 
-    id: 'free', 
+  demo: { 
+    id: 'demo', 
     name: 'Demo', 
     price: 0, 
     period: 'Forever', 
@@ -115,11 +115,11 @@ async function getPlans() {
 }
 
 async function checkAndUpdateSubscription(user) {
-  if (user.plan === 'free') return user;
+  if (user.plan === 'demo' || user.plan === 'free') return user;
   if (!user.planEndDate) return user;
   const now = new Date();
   if (now > new Date(user.planEndDate)) {
-    user.plan = 'free';
+    user.plan = 'demo';
     user.planStartDate = null;
     user.planEndDate = null;
     user.planAutoRenew = false;
@@ -132,16 +132,22 @@ async function checkAndUpdateSubscription(user) {
 
 async function getUserRate(user) {
   const plans = await getPlans();
-  if (user.plan === 'free') return plans.free.rate;
-  if (user.planEndDate && new Date() > new Date(user.planEndDate)) return plans.free.rate;
-  return plans[user.plan]?.rate || plans.free.rate;
+  const isDemo = user.plan === 'demo' || user.plan === 'free';
+  if (isDemo) return plans.demo?.rate || plans.free?.rate || 0.025;
+  if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
+    return plans.demo?.rate || plans.free?.rate || 0.025;
+  }
+  return plans[user.plan]?.rate || plans.demo?.rate || 0.025;
 }
 
 async function getUserDailyLimit(user) {
   const plans = await getPlans();
-  if (user.plan === 'free') return plans.free.dailyLimit;
-  if (user.planEndDate && new Date() > new Date(user.planEndDate)) return plans.free.dailyLimit;
-  return plans[user.plan]?.dailyLimit || plans.free.dailyLimit;
+  const isDemo = user.plan === 'demo' || user.plan === 'free';
+  if (isDemo) return plans.demo?.dailyLimit || plans.free?.dailyLimit || 50;
+  if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
+    return plans.demo?.dailyLimit || plans.free?.dailyLimit || 50;
+  }
+  return plans[user.plan]?.dailyLimit || plans.demo?.dailyLimit || 50;
 }
 
 // ============ RATE LIMITING ============
@@ -250,7 +256,7 @@ app.post('/api/register', async (req, res) => {
       name, mobile, whatsapp, payment,
       password: hashedPass,
       status: 'pending',
-      plan: 'free'
+      plan: 'demo'
     });
 
     res.json({ success: true, message: 'Registration successful! Admin approval ke baad aap work start kar sakte hain.', userId: user._id });
@@ -315,13 +321,13 @@ app.get('/api/profile', authUser, async (req, res) => {
   try {
     let user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'demo' && user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     const currentRate = await getUserRate(user);
     const dailyLimit = await getUserDailyLimit(user);
     const plans = await getPlans();
     const userObj = user.toObject();
-    userObj.isPremium = user.plan !== 'free' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
+    userObj.isPremium = user.plan !== 'demo' && user.plan !== 'free' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
     userObj.currentRate = currentRate;
     userObj.dailyLimit = dailyLimit;
     userObj.subscriptionExpired = wasExpired || user.subscriptionExpired || false;
@@ -329,7 +335,7 @@ app.get('/api/profile', authUser, async (req, res) => {
     const todayRec = (user.history || []).find(h => h.date === today);
     userObj.todaySolved = todayRec ? todayRec.solved : 0;
     userObj.remaining = Math.max(0, dailyLimit - userObj.todaySolved);
-    userObj.planFeatures = plans[user.plan]?.features || plans.free.features;
+    userObj.planFeatures = plans[user.plan]?.features || plans.demo?.features || plans.free?.features || [];
     res.json(userObj);
   } catch (err) {
     console.error(err);
@@ -345,7 +351,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
 
-    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'demo' && user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     if (wasExpired) {
       return res.status(403).json({
@@ -355,7 +361,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     }
 
     const plans = await getPlans();
-    const userPlan = plans[user.plan] || plans.free;
+    const userPlan = plans[user.plan] || plans.demo || plans.free;
     const currentRate = userPlan.rate;
     const dailyLimit = userPlan.dailyLimit;
 
@@ -421,7 +427,7 @@ app.post('/api/purchase-premium', authUser, async (req, res) => {
   try {
     const { planId } = req.body;
     const plans = await getPlans();
-    if (!plans[planId] || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
+    if (!plans[planId] || planId === 'demo' || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.pendingPlan = planId;
@@ -448,14 +454,13 @@ app.post('/api/mark-payment-done', authUser, async (req, res) => {
   }
 });
 
-// ============ WITHDRAW (User Input Amount) ============
+// ============ WITHDRAW ============
 app.post('/api/withdraw', authUser, async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approved nahi hai' });
     
-    // Get user-requested amount
     const requestedAmount = parseFloat(req.body.amount);
     if (!requestedAmount || requestedAmount <= 0) {
       return res.status(400).json({ error: 'Valid amount daalein' });
@@ -463,25 +468,21 @@ app.post('/api/withdraw', authUser, async (req, res) => {
     
     const availableBalance = user.totalEarned - user.totalWithdrawn - user.pendingWithdrawal;
     
-    // Check minimum withdrawal
     if (requestedAmount < MIN_WITHDRAWAL) {
       return res.status(400).json({ 
         error: `Minimum ₹${MIN_WITHDRAWAL} chahiye. Aapne ₹${requestedAmount} maanga.` 
       });
     }
     
-    // Check if requested amount exceeds available balance
     if (requestedAmount > availableBalance) {
       return res.status(400).json({ 
         error: `Amount exceeds available balance (₹${availableBalance.toFixed(3)})` 
       });
     }
     
-    // Check for existing pending request
     const existing = await Withdrawal.findOne({ userId: user._id, status: 'pending' });
     if (existing) return res.status(400).json({ error: 'Ek withdrawal request pehle se pending hai' });
     
-    // Create withdrawal request with user-requested amount
     const withdrawal = await Withdrawal.create({
       userId: user._id, 
       userName: user.name, 
@@ -493,7 +494,6 @@ app.post('/api/withdraw', authUser, async (req, res) => {
       status: 'pending'
     });
     
-    // Add to pending withdrawal
     user.pendingWithdrawal = parseFloat(((user.pendingWithdrawal || 0) + requestedAmount).toFixed(3));
     await user.save();
     
@@ -548,25 +548,82 @@ app.get('/api/admin/pending-plans', authAdmin, async (req, res) => {
   }
 });
 
+// 🔥 GET PLANS (FIXED)
 app.get('/api/admin/plans', authAdmin, async (req, res) => {
   try {
-    const plans = await getPlans();
-    res.json({ plans: plans });
+    let setting = await Settings.findOne({ key: 'plans' });
+    
+    if (!setting || !setting.value) {
+      setting = await Settings.findOneAndUpdate(
+        { key: 'plans' },
+        { key: 'plans', value: DEFAULT_PLANS },
+        { upsert: true, new: true }
+      );
+    }
+    
+    res.json({ success: true, plans: setting.value });
   } catch (err) {
+    console.error('Plans GET error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// 🔥 UPDATE PLANS (FIXED — array & object dono accept karega)
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
-    const { plans } = req.body;
-   if (!plans || !plans.free || !plans.silver || !plans.gold || !plans.platinum) {
-  return res.status(400).json({ error: 'All 4 plans required' });
-}
+    let { plans } = req.body;
+    
+    if (!plans) {
+      return res.status(400).json({ error: 'plans required' });
     }
-    await Settings.findOneAndUpdate({ key: 'plans' }, { value: plans }, { upsert: true });
-    res.json({ success: true, message: 'Plans updated!' });
+    
+    // 🔥 Array ya Object dono accept karo
+    let plansObj = {};
+    if (Array.isArray(plans)) {
+      plans.forEach(p => { plansObj[p.id] = p; });
+    } else {
+      plansObj = plans;
+    }
+    
+    // 🔥 Check karo ki sabhi 4 plans hain
+    const required = ['demo', 'silver', 'gold', 'platinum'];
+    const missing = required.filter(pid => !plansObj[pid]);
+    
+    if (missing.length > 0) {
+      return res.status(400).json({ 
+        error: `Missing plans: ${missing.join(', ')}. All 4 plans required.`
+      });
+    }
+    
+    // Validate each plan
+    for (const pid of required) {
+      const p = plansObj[pid];
+      if (!p.name || typeof p.name !== 'string') {
+        return res.status(400).json({ error: `${pid} ka name required hai` });
+      }
+      if (p.rate == null || isNaN(p.rate)) {
+        return res.status(400).json({ error: `${pid} ka rate required hai` });
+      }
+      if (p.dailyLimit == null || isNaN(p.dailyLimit)) {
+        return res.status(400).json({ error: `${pid} ka dailyLimit required hai` });
+      }
+    }
+    
+    await Settings.findOneAndUpdate(
+      { key: 'plans' },
+      { key: 'plans', value: plansObj },
+      { upsert: true, new: true }
+    );
+    
+    console.log('✅ Plans updated:', Object.keys(plansObj));
+    res.json({ 
+      success: true, 
+      message: 'Plans updated successfully!',
+      plans: plansObj
+    });
+    
   } catch (err) {
+    console.error('Plans POST error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -575,7 +632,7 @@ app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
     const { planId } = req.body;
     const plans = await getPlans();
-    if (!plans[planId] || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
+    if (!plans[planId] || planId === 'demo' || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const now = new Date();
@@ -618,9 +675,13 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
     const plans = await getPlans();
     if (!plans[plan]) return res.status(400).json({ error: 'Invalid plan' });
     const now = new Date();
-    const endDate = plan === 'free' ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const isDemo = plan === 'demo' || plan === 'free';
+    const endDate = isDemo ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const user = await User.findByIdAndUpdate(req.params.id, {
-      plan, planStartDate: plan === 'free' ? null : now, planEndDate: endDate, subscriptionExpired: false
+      plan, 
+      planStartDate: isDemo ? null : now, 
+      planEndDate: endDate, 
+      subscriptionExpired: false
     }, { new: true }).select('-password');
     res.json({ success: true, user });
   } catch (err) {
@@ -628,7 +689,7 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: ADD BONUS (Fixed) ============
+// ============ ADMIN: ADD BONUS ============
 app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
   try {
     const { amount, reason } = req.body;
@@ -646,7 +707,6 @@ app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
 
     user.totalEarned = parseFloat(((user.totalEarned || 0) + bonusAmount).toFixed(3));
     
-    // Add to history
     const today = new Date().toISOString().split('T')[0];
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
@@ -670,6 +730,7 @@ app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
 app.post('/api/admin/approve-user/:id', authAdmin, async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, { status: 'approved' }, { new: true }).select('-password');
@@ -717,7 +778,7 @@ app.get('/api/admin/overview', authAdmin, async (req, res) => {
     const pendingUsers = users.filter(u => u.status === 'pending').length;
     const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
     const pendingPlans = users.filter(u => u.pendingPlan).length;
-    const premiumUsers = users.filter(u => u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
+    const premiumUsers = users.filter(u => u.plan !== 'demo' && u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
     const premiumIncome = users.reduce((s, u) => s + (u.totalPaidForPremium || 0), 0);
     res.json({
       totalUsers: users.length, activeToday, totalSolved,
@@ -849,7 +910,7 @@ app.post('/api/admin/settings/payment', authAdmin, async (req, res) => {
   }
 });
 
-// ============ DATA CLEANUP (30 days old history) ============
+// ============ DATA CLEANUP ============
 async function cleanupOldData() {
   try {
     const thirtyDaysAgo = new Date();
@@ -887,13 +948,13 @@ app.use((err, req, res, next) => {
   console.error('❌ Express Error:', err.message);
   res.status(500).json({ error: 'Server error' });
 });
-// ============ VISITOR TRACKING (Real-time Views) ============
+
+// ============ VISITOR TRACKING ============
 app.post('/api/track-visit', async (req, res) => {
   try {
     const { visitorId } = req.body;
     const today = new Date().toISOString().split('T')[0];
     
-    // Find or create visitor stats
     let stats = await Settings.findOne({ key: 'visitorStats' });
     
     if (!stats) {
@@ -912,38 +973,31 @@ app.post('/api/track-visit', async (req, res) => {
     
     const data = stats.value;
     
-    // Reset daily counters if new day
     if (data.lastResetDate !== today) {
       data.todayViews = 0;
       data.todayUniqueVisitors = [];
       data.lastResetDate = today;
     }
     
-    // Increment views
     data.totalViews = (data.totalViews || 0) + 1;
     data.todayViews = (data.todayViews || 0) + 1;
     
-    // Track unique visitors
     if (visitorId && !data.uniqueVisitors.includes(visitorId)) {
       data.uniqueVisitors.push(visitorId);
-      // Keep only last 10000 to avoid bloat
       if (data.uniqueVisitors.length > 10000) {
         data.uniqueVisitors = data.uniqueVisitors.slice(-10000);
       }
     }
     
-    // Track today's unique visitors
     if (visitorId && !data.todayUniqueVisitors.includes(visitorId)) {
       data.todayUniqueVisitors.push(visitorId);
     }
     
-    // Hourly views tracking
     const currentHour = new Date().getHours();
     const hourKey = `${today}_${currentHour}`;
     if (!data.hourlyViews) data.hourlyViews = {};
     data.hourlyViews[hourKey] = (data.hourlyViews[hourKey] || 0) + 1;
     
-    // Keep only last 48 hours of hourly data
     const hourKeys = Object.keys(data.hourlyViews);
     if (hourKeys.length > 48) {
       const sortedKeys = hourKeys.sort();
@@ -1004,6 +1058,7 @@ app.get('/api/visitor-stats', async (req, res) => {
     });
   }
 });
+
 // ============ ADMIN: GET VISITOR STATS ============
 app.get('/api/admin/visitor-stats', authAdmin, async (req, res) => {
   try {
@@ -1058,22 +1113,18 @@ app.post('/api/admin/update-visitor-stats', authAdmin, async (req, res) => {
     
     const data = stats.value;
     
-    // Update values (admin can set any number)
     if (totalViews !== undefined) data.totalViews = parseInt(totalViews) || 0;
     if (todayViews !== undefined) data.todayViews = parseInt(todayViews) || 0;
     
-    // For unique visitors, we simulate with fake IDs if admin sets higher number
     if (totalUnique !== undefined) {
       const targetTotal = parseInt(totalUnique) || 0;
       const currentCount = data.uniqueVisitors?.length || 0;
       
       if (targetTotal > currentCount) {
-        // Add fake visitor IDs to reach target
         for (let i = currentCount; i < targetTotal; i++) {
           data.uniqueVisitors.push('admin_fake_' + Date.now() + '_' + i);
         }
       } else if (targetTotal < currentCount) {
-        // Remove extra
         data.uniqueVisitors = data.uniqueVisitors.slice(0, targetTotal);
       }
     }
@@ -1139,16 +1190,13 @@ app.post('/api/admin/reset-visitor-stats', authAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-// ============ START SERVER ============
-const PORT = process.env.PORT || 5000;
-// ============ ADMIN: VIEW USER PASSWORD (NEW) ============
+
+// ============ ADMIN: VIEW USER PASSWORD ============
 app.get('/api/admin/user-password/:id', authAdmin, async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('name mobile password');
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    // Password plain text nahi hai — bcrypt hashed hai
-    // Admin ko batate hain ki yeh hash hai, actual password nahi de sakte
     res.json({
       success: true,
       name: user.name,
@@ -1163,7 +1211,7 @@ app.get('/api/admin/user-password/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: RESET USER PASSWORD (NEW) ============
+// ============ ADMIN: RESET USER PASSWORD ============
 app.post('/api/admin/reset-password/:id', authAdmin, async (req, res) => {
   try {
     const { newPassword } = req.body;
@@ -1191,7 +1239,7 @@ app.post('/api/admin/reset-password/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: DEDUCT BALANCE (Fixed - Syncs with History) ============
+// ============ ADMIN: DEDUCT BALANCE ============
 app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
   try {
     const { amount, reason } = req.body;
@@ -1212,10 +1260,8 @@ app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
       });
     }
     
-    // 1. Deduct from totalEarned
     user.totalEarned = parseFloat(((user.totalEarned || 0) - deductAmount).toFixed(3));
     
-    // 2. Deduct from history
     const today = new Date().toISOString().split('T')[0];
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
@@ -1237,18 +1283,20 @@ app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: REVOKE PLAN (NEW) ============
+// ============ ADMIN: REVOKE PLAN ============
 app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
   try {
     const { reason } = req.body;
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    if (user.plan === 'free') {
-      return res.status(400).json({ error: 'User is already on Free plan' });
+    if (user.plan === 'demo' || user.plan === 'free') {
+      return res.status(400).json({ error: 'User is already on Free/Demo plan' });
     }
     
-    user.plan = 'free';
+    const revokedPlan = user.plan;
+    
+    user.plan = 'demo';
     user.planStartDate = null;
     user.planEndDate = null;
     user.pendingPlan = null;
@@ -1257,7 +1305,7 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     
     if (!user.planRevokeLogs) user.planRevokeLogs = [];
     user.planRevokeLogs.push({
-      revokedPlan: user.plan,
+      revokedPlan: revokedPlan,
       reason: reason || 'Admin revoke',
       date: new Date()
     });
@@ -1266,13 +1314,16 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     
     res.json({
       success: true,
-      message: `${user.name}'s premium plan revoked. Reverted to Free plan.`
+      message: `${user.name}'s premium plan revoked. Reverted to Demo plan.`
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// ============ START SERVER ============
+const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 server.timeout = 30000;
