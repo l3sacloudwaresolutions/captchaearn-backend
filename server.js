@@ -36,19 +36,67 @@ mongoose.connection.on('disconnected', () => {
 // ============ PLAN CONFIG ============
 const DEFAULT_PLANS = {
   free: { 
-    id: 'free', name: 'Free', price: 0, period: 'Forever', 
-    rate: 0.025, dailyLimit: 100,
-    features: ['100 captchas daily', '₹0.025 per captcha', 'Basic support', 'Weekly payout']
+    id: 'free', 
+    name: 'Demo', 
+    price: 0, 
+    period: 'Forever', 
+    rate: 0.025, 
+    dailyLimit: 50,
+    features: [
+      '✅ 50 captchas daily',
+      '💰 ₹0.025 per captcha',
+      '🎯 Basic practice',
+      '📊 Daily activity tracking'
+    ],
+    isDemo: true
   },
-  premium: { 
-    id: 'premium', name: 'Premium', price: 199, period: 'month', 
-    rate: 0.05, dailyLimit: 99999,
-    features: ['♾️ Unlimited captchas', '💰 2x earning (₹0.05)', '⚡ Priority support', '🚀 Fast processing']
+  silver: { 
+    id: 'silver', 
+    name: 'Silver', 
+    price: 90, 
+    period: 'month', 
+    rate: 0.025, 
+    dailyLimit: 1000,
+    features: [
+      '✅ 1000 captchas daily',
+      '💰 ₹0.025 per captcha',
+      '⚡ Priority support',
+      '🚀 Fast processing',
+      '📊 Advanced dashboard'
+    ]
   },
-  premium_plus: { 
-    id: 'premium_plus', name: 'Premium+', price: 500, period: 'month', 
-    rate: 0.10, dailyLimit: 99999,
-    features: ['♾️ Unlimited captchas', '💰 4x earning (₹0.10)', '⚡ 24/7 support', '🚀 Instant processing', '🎁 Daily bonus ₹5']
+  gold: { 
+    id: 'gold', 
+    name: 'Gold', 
+    price: 199, 
+    period: 'month', 
+    rate: 0.050, 
+    dailyLimit: 99999,
+    features: [
+      '♾️ Unlimited captchas',
+      '💰 2x earning (₹0.05)',
+      '⚡ Priority support',
+      '🚀 Fast processing',
+      '📊 Advanced dashboard'
+    ],
+    popular: true
+  },
+  platinum: { 
+    id: 'platinum', 
+    name: 'Platinum', 
+    price: 500, 
+    period: 'month', 
+    rate: 0.10, 
+    dailyLimit: 99999,
+    features: [
+      '♾️ Unlimited captchas',
+      '💰 4x earning (₹0.10)',
+      '⚡ 24/7 priority support',
+      '🚀 Instant processing',
+      '📊 Advanced analytics',
+      '🎁 Daily bonus ₹5',
+      '💎 Exclusive badges'
+    ]
   }
 };
 
@@ -513,8 +561,9 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     const { plans } = req.body;
-    if (!plans || !plans.free || !plans.premium || !plans.premium_plus) {
-      return res.status(400).json({ error: 'All 3 plans required' });
+   if (!plans || !plans.free || !plans.silver || !plans.gold || !plans.platinum) {
+  return res.status(400).json({ error: 'All 4 plans required' });
+}
     }
     await Settings.findOneAndUpdate({ key: 'plans' }, { value: plans }, { upsert: true });
     res.json({ success: true, message: 'Plans updated!' });
