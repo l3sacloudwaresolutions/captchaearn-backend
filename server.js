@@ -57,6 +57,17 @@ const DEFAULT_PLANS = {
 
 const MIN_WITHDRAWAL = 100;
 
+// 🔥 Plan ke hisaab se allowed captcha types
+const PLAN_CAPTCHA_TYPES = {
+  demo: ['add', 'sub', 'mul', 'word'],
+  free: ['add', 'sub', 'mul', 'word'],
+  silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
+  gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard'],
+  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
+  premium: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
+  premium_plus: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
+};
+
 // ============ HELPER: GET PLANS ============
 async function getPlans() {
   try {
@@ -274,10 +285,10 @@ app.get('/api/profile', authUser, async (req, res) => {
   }
 });
 
-// ============ SUBMIT CAPTCHA (PLAN-BASED DIFFICULTY TRACKING) ============
+// ============ SUBMIT CAPTCHA (WITH PLAN-BASED VALIDATION) ============
 app.post('/api/submit-captcha', authUser, async (req, res) => {
   try {
-    const { userAnswer, correctAnswer, captchaType } = req.body; // 🔥 captchaType add kiya
+    const { userAnswer, correctAnswer, captchaType } = req.body;
     let user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
@@ -288,32 +299,20 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
       return res.status(403).json({ error: 'Your subscription has expired. Please purchase a plan to continue working.', subscriptionExpired: true });
     }
 
+    // 🔥 CAPTCHA TYPE VALIDATION (Anti-cheat)
+    const allowedTypes = PLAN_CAPTCHA_TYPES[user.plan] || PLAN_CAPTCHA_TYPES.demo;
+    if (captchaType && !allowedTypes.includes(captchaType)) {
+      console.log(`🚨 CHEAT ALERT: User ${user.name} (${user.plan}) tried type "${captchaType}" — NOT ALLOWED!`);
+      return res.status(400).json({ 
+        error: 'Invalid captcha type for your plan. Please refresh the page and try again.',
+        cheatDetected: true 
+      });
+    }
+
     const plans = await getPlans();
     const userPlan = plans[user.plan] || plans.demo || plans.free;
     const currentRate = userPlan.rate;
     const dailyLimit = userPlan.dailyLimit;
-
-    // 🔥 ANTI-CHEAT: Plan ke hisaab se captcha type validate karo
-    const planDifficulty = {
-      demo: ['add', 'sub', 'mul', 'word'],
-      free: ['add', 'sub', 'mul', 'word'],
-      silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
-      gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard'],
-      platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
-      premium: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
-      premium_plus: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
-    };
-
-    const allowedTypes = planDifficulty[user.plan] || planDifficulty.demo;
-
-    // Agar captchaType diya hai aur wo allowed nahi hai toh reject
-    if (captchaType && !allowedTypes.includes(captchaType)) {
-      console.log(`🚨 CHEAT ALERT: User ${user.name} (${user.plan}) tried type "${captchaType}" — not allowed!`);
-      return res.status(400).json({ 
-        error: 'Invalid captcha type for your plan. Please refresh and try again.',
-        cheatDetected: true 
-      });
-    }
 
     const today = new Date().toISOString().split('T')[0];
     if (user.todayResetDate !== today) {
@@ -351,7 +350,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
 
     res.json({
       success: true, correct: isCorrect, correctAnswer, rate: currentRate,
-      captchaType: captchaType || 'unknown', // 🔥 track karo
+      captchaType: captchaType || 'unknown',
       totalSolved: user.totalSolved, totalCorrect: user.totalCorrect, totalWrong: user.totalWrong,
       totalEarned: parseFloat(user.totalEarned.toFixed(3)),
       todayEarned: parseFloat(dayRec.earned.toFixed(3)),
