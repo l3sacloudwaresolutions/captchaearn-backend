@@ -55,8 +55,6 @@ const DEFAULT_PLANS = {
   }
 };
 
-// 🔥 AUTOMATIC DAILY BONUS CODE HATA DIYA GAYA HAI
-
 const MIN_WITHDRAWAL = 100;
 
 // ============ HELPER: GET PLANS ============
@@ -314,9 +312,8 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
 
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
-      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
+      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0, bonus: 0 }; // 🔥 bonus field add ki
       user.history.push(dayRec);
-      // 🔥 BONUS ADD KARNE WALA CODE YAHAN SE HATA DIYA GAYA HAI
     }
 
     dayRec.solved++;
@@ -547,15 +544,19 @@ app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Total balance update karo
     user.totalEarned = parseFloat(((user.totalEarned || 0) + bonusAmount).toFixed(3));
     
     const today = new Date().toISOString().split('T')[0];
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
-      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
+      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0, bonus: 0 }; // 🔥 bonus field add ki
       user.history.push(dayRec);
     }
+    
+    // 🔥 Aaj ke din ke record mein bonus add karo
     dayRec.earned = parseFloat(((dayRec.earned || 0) + bonusAmount).toFixed(3));
+    dayRec.bonus = parseFloat(((dayRec.bonus || 0) + bonusAmount).toFixed(3)); // Alag se bonus save karo
 
     await user.save();
 
@@ -568,7 +569,6 @@ app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-
 app.post('/api/admin/approve-user/:id', authAdmin, async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, { status: 'approved' }, { new: true }).select('-password');
@@ -925,7 +925,7 @@ app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     let dayRec = user.history.find(h => h.date === today);
     if (!dayRec) {
-      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0 };
+      dayRec = { date: today, solved: 0, correct: 0, wrong: 0, earned: 0, bonus: 0 };
       user.history.push(dayRec);
     }
     dayRec.earned = parseFloat(((dayRec.earned || 0) - deductAmount).toFixed(3));
