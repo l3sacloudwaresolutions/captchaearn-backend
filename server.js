@@ -57,15 +57,15 @@ const DEFAULT_PLANS = {
 
 const MIN_WITHDRAWAL = 100;
 
-// 🔥 Plan ke hisaab se allowed captcha types
+// 🔥 Plan ke hisaab se allowed captcha types (Words zyada)
 const PLAN_CAPTCHA_TYPES = {
-  demo: ['add', 'sub', 'mul', 'word'],
-  free: ['add', 'sub', 'mul', 'word'],
-  silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
-  gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard'],
-  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
-  premium: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
-  premium_plus: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
+  demo: ['word3', 'word4', 'add'],
+  free: ['word3', 'word4', 'add'],
+  silver: ['word5', 'word6', 'add', 'sub'],
+  gold: ['word7', 'word8', 'word7_scramble', 'word8_scramble', 'mulHard'],
+  platinum: ['word9', 'word10', 'word9_scramble', 'word10_reverse', 'mixedVeryHard'],
+  premium: ['word9', 'word10', 'word9_scramble', 'word10_reverse', 'mixedVeryHard'],
+  premium_plus: ['word9', 'word10', 'word9_scramble', 'word10_reverse', 'mixedVeryHard']
 };
 
 // ============ HELPER: GET PLANS ============
