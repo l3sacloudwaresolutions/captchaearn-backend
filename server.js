@@ -188,6 +188,16 @@ app.get('/api/payment-settings', async (req, res) => {
   }
 });
 
+// ============ PUBLIC AD GATE LINK ============
+app.get('/api/ad-gate-link', async (req, res) => {
+  try {
+    const settings = await Settings.findOne({ key: 'adGate' });
+    res.json(settings ? settings.value : { link: 'https://your-ad-link-here.com' });
+  } catch (err) {
+    res.json({ link: 'https://your-ad-link-here.com' });
+  }
+});
+
 // ============ REGISTER ============
 app.post('/api/register', async (req, res) => {
   try {
@@ -728,10 +738,12 @@ app.get('/api/admin/settings', authAdmin, async (req, res) => {
     const marquee = await Settings.findOne({ key: 'marquee' });
     const ads = await Settings.findOne({ key: 'ads' });
     const payment = await Settings.findOne({ key: 'payment' });
+    const adGate = await Settings.findOne({ key: 'adGate' }); // 🔥 Added
     res.json({
       marquee: marquee ? marquee.value : '',
       ads: ads ? ads.value : [],
-      payment: payment ? payment.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' }
+      payment: payment ? payment.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' },
+      adGate: adGate ? adGate.value : { link: 'https://your-ad-link-here.com' } // 🔥 Added
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -763,6 +775,17 @@ app.post('/api/admin/settings/payment', authAdmin, async (req, res) => {
     const { payment } = req.body;
     await Settings.findOneAndUpdate({ key: 'payment' }, { value: payment }, { upsert: true });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 🔥 ADMIN: UPDATE AD GATE LINK
+app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
+  try {
+    const { link } = req.body;
+    await Settings.findOneAndUpdate({ key: 'adGate' }, { value: { link } }, { upsert: true });
+    res.json({ success: true, message: 'Ad link updated successfully!' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
