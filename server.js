@@ -309,14 +309,15 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
       return res.status(403).json({ error: 'Your subscription has expired. Please purchase a plan to continue working.', subscriptionExpired: true });
     }
 
-    // 🔥 CAPTCHA TYPE VALIDATION (Anti-cheat)
+       // 🔥 CAPTCHA TYPE VALIDATION (Soft Check - Anti-cheat)
     const allowedTypes = PLAN_CAPTCHA_TYPES[user.plan] || PLAN_CAPTCHA_TYPES.demo;
-    if (captchaType && !allowedTypes.includes(captchaType)) {
-      console.log(`🚨 CHEAT ALERT: User ${user.name} (${user.plan}) tried type "${captchaType}" — NOT ALLOWED!`);
-      return res.status(400).json({ 
-        error: 'Invalid captcha type for your plan. Please refresh the page and try again.',
-        cheatDetected: true 
-      });
+    
+    // Agar captchaType undefined hai (purane cache ki wajah se), toh block mat karo
+    if (captchaType && captchaType !== 'undefined') {
+      if (!allowedTypes.includes(captchaType)) {
+        console.log(`🚨 WARNING: User ${user.name} (${user.plan}) sent type "${captchaType}". Allowing it for now to prevent errors.`);
+        // Humne yahan return hata diya hai, taaki user ka work rukey nahi
+      }
     }
 
     const plans = await getPlans();
