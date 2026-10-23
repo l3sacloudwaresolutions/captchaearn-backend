@@ -161,18 +161,26 @@ app.get('/api/settings/public', async (req, res) => {
   try {
     const marquee = await Settings.findOne({ key: 'marquee' });
     const ads = await Settings.findOne({ key: 'ads' });
+    const adGate = await Settings.findOne({ key: 'adGateLink' }); // 🔥 Yeh line add karein
     const plans = await getPlans();
-    res.json({ marquee: marquee ? marquee.value : '', ads: ads ? ads.value : [], plans: plans });
+    
+    res.json({ 
+      marquee: marquee ? marquee.value : '', 
+      ads: ads ? ads.value : [], 
+      adGateLink: adGate ? adGate.value : '', // 🔥 Yeh line add karein
+      plans: plans 
+    });
   } catch (err) {
-    res.json({ marquee: '', ads: [], plans: DEFAULT_PLANS });
+    res.json({ marquee: '', ads: [], adGateLink: '', plans: DEFAULT_PLANS });
   }
 });
 
 // ============ PUBLIC PLANS ============
-app.get('/api/plans', async (req, res) => {
+app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
   try {
-    const plans = await getPlans();
-    res.json({ plans: Object.values(plans) });
+    const { link } = req.body;
+    await Settings.findOneAndUpdate({ key: 'adGateLink' }, { value: link }, { upsert: true });
+    res.json({ success: true, message: 'Ad Gate Link saved!' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
