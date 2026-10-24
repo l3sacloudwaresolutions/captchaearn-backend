@@ -14,10 +14,33 @@ const userSchema = new mongoose.Schema({
       holder: String
     }
   },
+  status: { type: String, enum: ['pending', 'approved', 'disqualified'], default: 'pending' },
+  
+  // Plan fields
+  plan: { type: String, default: 'free' },
+  planStartDate: { type: Date, default: null },
+  planEndDate: { type: Date, default: null },
+  planAutoRenew: { type: Boolean, default: false },
+  planApprovedAt: { type: Date, default: null },
+  pendingPlan: { type: String, default: null },
+  pendingPlanRequestedAt: { type: Date, default: null },
+  paymentMarked: { type: Boolean, default: false },
+  paymentMarkedAt: { type: Date, default: null },
+  subscriptionExpired: { type: Boolean, default: false },
+  expiredAt: { type: Date, default: null },
+  
+  // Daily tracking
+  todayCaptchas: { type: Number, default: 0 },
+  todayResetDate: { type: String, default: null },
+  
   totalSolved: { type: Number, default: 0 },
   totalCorrect: { type: Number, default: 0 },
   totalWrong: { type: Number, default: 0 },
   totalEarned: { type: Number, default: 0 },
+  totalWithdrawn: { type: Number, default: 0 },
+  pendingWithdrawal: { type: Number, default: 0 },
+  totalPaidForPremium: { type: Number, default: 0 },
+  
   streak: { type: Number, default: 0 },
   lastActive: { type: Date, default: null },
   lastDailyBonus: { type: Date, default: null },
