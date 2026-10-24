@@ -498,23 +498,37 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
     let { plans } = req.body;
     if (!plans) return res.status(400).json({ error: 'plans required' });
     
+    // Handle both array and object
     let plansObj = {};
-    if (Array.isArray(plans)) { plans.forEach(p => { plansObj[p.id] = p; }); } else { plansObj = plans; }
+    if (Array.isArray(plans)) {
+      plans.forEach(p => { plansObj[p.id] = p; });
+    } else {
+      plansObj = plans;
+    }
     
+    // Validate all 4 plans
     const required = ['demo', 'silver', 'gold', 'platinum'];
-    const missing = required.filter(pid => !plansObj[pid]);
-    if (missing.length > 0) return res.status(400).json({ error: `Missing plans: ${missing.join(', ')}. All 4 plans required.` });
-    
     for (const pid of required) {
       const p = plansObj[pid];
+      if (!p) return res.status(400).json({ error: `Missing plan: ${pid}` });
       if (!p.name || typeof p.name !== 'string') return res.status(400).json({ error: `${pid} ka name required hai` });
       if (p.rate == null || isNaN(p.rate)) return res.status(400).json({ error: `${pid} ka rate required hai` });
       if (p.dailyLimit == null || isNaN(p.dailyLimit)) return res.status(400).json({ error: `${pid} ka dailyLimit required hai` });
+      if (p.price == null || isNaN(p.price)) return res.status(400).json({ error: `${pid} ka price required hai` });
     }
     
-    await Settings.findOneAndUpdate({ key: 'plans' }, { key: 'plans', value: plansObj }, { upsert: true, new: true });
+    // Save to database
+    await Settings.findOneAndUpdate(
+      { key: 'plans' }, 
+      { key: 'plans', value: plansObj }, 
+      { upsert: true, new: true }
+    );
+    
+    console.log('✅ Plans updated:', Object.keys(plansObj));
+    
     res.json({ success: true, message: 'Plans updated successfully!', plans: plansObj });
   } catch (err) {
+    console.error('Update plans error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
