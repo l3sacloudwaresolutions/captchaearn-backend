@@ -47,7 +47,7 @@ const DEFAULT_PLANS = {
     isDemo: true
   },
   silver: { 
-    id: 'silver', name: 'Silver', price: 90, period: 'month', rate: 0.025, dailyLimit: 1000,
+    id: 'silver', name: 'Silver', price: 100, period: 'month', rate: 0.025, dailyLimit: 1000,
     features: ['✅ 1000 captchas daily', '💰 ₹0.025 per captcha', '⚡ Priority support', '🚀 Fast processing', '📊 Advanced dashboard']
   },
   gold: { 
