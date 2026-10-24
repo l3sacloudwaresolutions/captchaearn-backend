@@ -11,7 +11,13 @@ const Withdrawal = require('./models/Withdrawal');
 const Settings = require('./models/Settings');
 
 const app = express();
-app.use(cors());
+
+// 🔥 FIX: CORS properly configure
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'username', 'password']
+}));
 app.use(express.json({ limit: '10mb' }));
 
 // ============ DATABASE CONNECTION ============
@@ -57,7 +63,7 @@ const DEFAULT_PLANS = {
 
 const MIN_WITHDRAWAL = 100;
 
-// 🔥 Plan ke hisaab se allowed captcha types (Words zyada)
+// 🔥 Plan ke hisaab se allowed captcha types
 const PLAN_CAPTCHA_TYPES = {
   demo: ['add', 'sub', 'mul', 'word', 'mixed'],
   free: ['add', 'sub', 'mul', 'word', 'mixed'],
@@ -68,14 +74,32 @@ const PLAN_CAPTCHA_TYPES = {
   premium_plus: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed']
 };
 
-// ============ HELPER: GET PLANS ============
+// ============ 🔥 GLOBAL NO-CACHE MIDDLEWARE ============
+// CRITICAL FIX: Har /api response pe no-cache headers
+app.use('/api/', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+});
+
+// ============ HELPER: GET PLANS (FIXED) ============
 async function getPlans() {
   try {
-    const plansDoc = await Settings.findOne({ key: 'plans' });
+    // 🔥 FIX: .lean() + fresh read (Mongoose cache bypass)
+    const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     if (plansDoc && plansDoc.value) return plansDoc.value;
-    await Settings.findOneAndUpdate({ key: 'plans' }, { value: DEFAULT_PLANS }, { upsert: true });
+    
+    // Pehli baar — default save karo
+    await Settings.findOneAndUpdate(
+      { key: 'plans' }, 
+      { key: 'plans', value: DEFAULT_PLANS }, 
+      { upsert: true, new: true }
+    );
     return DEFAULT_PLANS;
   } catch (err) {
+    console.error('getPlans error:', err.message);
     return DEFAULT_PLANS;
   }
 }
@@ -156,53 +180,77 @@ app.get('/', (req, res) => {
   res.json({ status: 'TypeCaptchaToEarn API is running ✅' });
 });
 
-// ============ PUBLIC SETTINGS ============
+// ============ 🔥 PUBLIC SETTINGS (FIXED) ============
 app.get('/api/settings/public', async (req, res) => {
   try {
-    const marquee = await Settings.findOne({ key: 'marquee' });
-    const ads = await Settings.findOne({ key: 'ads' });
-    const adGate = await Settings.findOne({ key: 'adGateLink' }); // 🔥 Yeh line add karein
-    const plans = await getPlans();
+    // Extra cache bypass for safety
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    const marquee = await Settings.findOne({ key: 'marquee' }).lean();
+    const ads = await Settings.findOne({ key: 'ads' }).lean();
+    const adGate = await Settings.findOne({ key: 'adGate' }).lean(); // 🔥 FIX: key 'adGate'
+    
+    // 🔥 FIX: Direct DB fetch (fresh plans)
+    const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
+    const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
+    
+    const adGateLink = adGate ? (adGate.value?.link || '') : '';
     
     res.json({ 
       marquee: marquee ? marquee.value : '', 
       ads: ads ? ads.value : [], 
-      adGateLink: adGate ? adGate.value : '', // 🔥 Yeh line add karein
+      adGateLink: adGateLink,
       plans: plans 
     });
   } catch (err) {
+    console.error('Public settings error:', err);
     res.json({ marquee: '', ads: [], adGateLink: '', plans: DEFAULT_PLANS });
   }
 });
 
-// ============ PUBLIC PLANS ============
-app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
+// ============ 🔥 PUBLIC PLANS (NEW ROUTE) ============
+app.get('/api/plans', async (req, res) => {
   try {
-    const { link } = req.body;
-    await Settings.findOneAndUpdate({ key: 'adGateLink' }, { value: link }, { upsert: true });
-    res.json({ success: true, message: 'Ad Gate Link saved!' });
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    
+    const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
+    const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
+    
+    res.json({ success: true, plans });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Public plans error:', err);
+    res.status(500).json({ error: 'Server error', plans: DEFAULT_PLANS });
   }
 });
 
-// ============ PUBLIC PAYMENT SETTINGS ============
+// ============ PUBLIC PAYMENT SETTINGS (FIXED) ============
 app.get('/api/payment-settings', async (req, res) => {
   try {
-    const settings = await Settings.findOne({ key: 'payment' });
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    
+    const settings = await Settings.findOne({ key: 'payment' }).lean();
     res.json(settings ? settings.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' });
   } catch (err) {
     res.json({ upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' });
   }
 });
 
-// ============ PUBLIC AD GATE LINK ============
+// ============ PUBLIC AD GATE LINK (FIXED) ============
 app.get('/api/ad-gate-link', async (req, res) => {
   try {
-    const settings = await Settings.findOne({ key: 'adGate' });
-    res.json(settings ? settings.value : { link: 'https://your-ad-link-here.com' });
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    
+    const settings = await Settings.findOne({ key: 'adGate' }).lean(); // 🔥 FIX: 'adGate'
+    const link = settings?.value?.link || '';
+    res.json({ link });
   } catch (err) {
-    res.json({ link: 'https://your-ad-link-here.com' });
+    res.json({ link: '' });
   }
 });
 
@@ -303,7 +351,7 @@ app.get('/api/profile', authUser, async (req, res) => {
   }
 });
 
-// ============ SUBMIT CAPTCHA (WITH PLAN-BASED VALIDATION) ============
+// ============ SUBMIT CAPTCHA ============
 app.post('/api/submit-captcha', authUser, async (req, res) => {
   try {
     const { userAnswer, correctAnswer, captchaType } = req.body;
@@ -317,14 +365,11 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
       return res.status(403).json({ error: 'Your subscription has expired. Please purchase a plan to continue working.', subscriptionExpired: true });
     }
 
-       // 🔥 CAPTCHA TYPE VALIDATION (Soft Check - Anti-cheat)
     const allowedTypes = PLAN_CAPTCHA_TYPES[user.plan] || PLAN_CAPTCHA_TYPES.demo;
     
-    // Agar captchaType undefined hai (purane cache ki wajah se), toh block mat karo
     if (captchaType && captchaType !== 'undefined') {
       if (!allowedTypes.includes(captchaType)) {
         console.log(`🚨 WARNING: User ${user.name} (${user.plan}) sent type "${captchaType}". Allowing it for now to prevent errors.`);
-        // Humne yahan return hata diya hai, taaki user ka work rukey nahi
       }
     }
 
@@ -481,18 +526,28 @@ app.get('/api/admin/pending-plans', authAdmin, async (req, res) => {
   }
 });
 
+// 🔥 FIX: .lean() + no cache
 app.get('/api/admin/plans', authAdmin, async (req, res) => {
   try {
-    let setting = await Settings.findOne({ key: 'plans' });
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    
+    let setting = await Settings.findOne({ key: 'plans' }).lean();
     if (!setting || !setting.value) {
-      setting = await Settings.findOneAndUpdate({ key: 'plans' }, { key: 'plans', value: DEFAULT_PLANS }, { upsert: true, new: true });
+      const created = await Settings.findOneAndUpdate(
+        { key: 'plans' }, 
+        { key: 'plans', value: DEFAULT_PLANS }, 
+        { upsert: true, new: true }
+      ).lean();
+      setting = created;
     }
     res.json({ success: true, plans: setting.value });
   } catch (err) {
+    console.error('Admin plans get error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// 🔥 FIX: Ensure `id` field + proper save
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     let { plans } = req.body;
@@ -515,21 +570,31 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       if (p.rate == null || isNaN(p.rate)) return res.status(400).json({ error: `${pid} ka rate required hai` });
       if (p.dailyLimit == null || isNaN(p.dailyLimit)) return res.status(400).json({ error: `${pid} ka dailyLimit required hai` });
       if (p.price == null || isNaN(p.price)) return res.status(400).json({ error: `${pid} ka price required hai` });
+      
+      // 🔥 FIX: Ensure `id` field hai + numbers convert
+      plansObj[pid].id = pid;
+      plansObj[pid].rate = Number(p.rate);
+      plansObj[pid].dailyLimit = Number(p.dailyLimit);
+      plansObj[pid].price = Number(p.price);
+      plansObj[pid].name = String(p.name);
+      plansObj[pid].period = p.period || (pid === 'demo' ? 'Forever' : 'month');
+      plansObj[pid].features = Array.isArray(p.features) ? p.features : [];
     }
     
     // Save to database
-    await Settings.findOneAndUpdate(
+    const saved = await Settings.findOneAndUpdate(
       { key: 'plans' }, 
       { key: 'plans', value: plansObj }, 
-      { upsert: true, new: true }
-    );
+      { upsert: true, new: true, runValidators: false }
+    ).lean();
     
-    console.log('✅ Plans updated:', Object.keys(plansObj));
+    console.log('✅ Plans updated:', Object.keys(plansObj), 'Silver price:', plansObj.silver.price);
     
-    res.json({ success: true, message: 'Plans updated successfully!', plans: plansObj });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, message: 'Plans updated successfully!', plans: saved.value });
   } catch (err) {
     console.error('Update plans error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error: ' + err.message });
   }
 });
 
@@ -758,15 +823,15 @@ app.post('/api/admin/reject-withdrawal/:id', authAdmin, async (req, res) => {
 
 app.get('/api/admin/settings', authAdmin, async (req, res) => {
   try {
-    const marquee = await Settings.findOne({ key: 'marquee' });
-    const ads = await Settings.findOne({ key: 'ads' });
-    const payment = await Settings.findOne({ key: 'payment' });
-    const adGate = await Settings.findOne({ key: 'adGate' }); // 🔥 Added
+    const marquee = await Settings.findOne({ key: 'marquee' }).lean();
+    const ads = await Settings.findOne({ key: 'ads' }).lean();
+    const payment = await Settings.findOne({ key: 'payment' }).lean();
+    const adGate = await Settings.findOne({ key: 'adGate' }).lean();
     res.json({
       marquee: marquee ? marquee.value : '',
       ads: ads ? ads.value : [],
       payment: payment ? payment.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' },
-      adGate: adGate ? adGate.value : { link: 'https://your-ad-link-here.com' } // 🔥 Added
+      adGate: adGate ? adGate.value : { link: '' }
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -776,7 +841,7 @@ app.get('/api/admin/settings', authAdmin, async (req, res) => {
 app.post('/api/admin/settings/marquee', authAdmin, async (req, res) => {
   try {
     const { text } = req.body;
-    await Settings.findOneAndUpdate({ key: 'marquee' }, { value: text }, { upsert: true });
+    await Settings.findOneAndUpdate({ key: 'marquee' }, { key: 'marquee', value: text }, { upsert: true });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -786,7 +851,7 @@ app.post('/api/admin/settings/marquee', authAdmin, async (req, res) => {
 app.post('/api/admin/settings/ads', authAdmin, async (req, res) => {
   try {
     const { ads } = req.body;
-    await Settings.findOneAndUpdate({ key: 'ads' }, { value: ads }, { upsert: true });
+    await Settings.findOneAndUpdate({ key: 'ads' }, { key: 'ads', value: ads }, { upsert: true });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -796,20 +861,28 @@ app.post('/api/admin/settings/ads', authAdmin, async (req, res) => {
 app.post('/api/admin/settings/payment', authAdmin, async (req, res) => {
   try {
     const { payment } = req.body;
-    await Settings.findOneAndUpdate({ key: 'payment' }, { value: payment }, { upsert: true });
+    await Settings.findOneAndUpdate({ key: 'payment' }, { key: 'payment', value: payment }, { upsert: true });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// 🔥 ADMIN: UPDATE AD GATE LINK
+// 🔥 ADMIN: UPDATE AD GATE LINK (ONLY ONE - FIXED KEY)
 app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
   try {
     const { link } = req.body;
-    await Settings.findOneAndUpdate({ key: 'adGate' }, { value: { link } }, { upsert: true });
-    res.json({ success: true, message: 'Ad link updated successfully!' });
+    if (!link) return res.status(400).json({ error: 'Link required' });
+    
+    await Settings.findOneAndUpdate(
+      { key: 'adGate' },
+      { key: 'adGate', value: { link } },
+      { upsert: true, new: true }
+    );
+    
+    res.json({ success: true, message: 'Ad Gate Link saved!' });
   } catch (err) {
+    console.error('Ad gate save error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -952,7 +1025,7 @@ app.post('/api/admin/update-visitor-stats', authAdmin, async (req, res) => {
 app.post('/api/admin/reset-visitor-stats', authAdmin, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    await Settings.findOneAndUpdate({ key: 'visitorStats' }, { value: { totalViews: 0, todayViews: 0, lastResetDate: today, uniqueVisitors: [], todayUniqueVisitors: [], hourlyViews: {} } }, { upsert: true });
+    await Settings.findOneAndUpdate({ key: 'visitorStats' }, { key: 'visitorStats', value: { totalViews: 0, todayViews: 0, lastResetDate: today, uniqueVisitors: [], todayUniqueVisitors: [], hourlyViews: {} } }, { upsert: true });
     res.json({ success: true, message: 'Visitor stats reset to 0!' });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
