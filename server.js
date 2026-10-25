@@ -12,7 +12,7 @@ const Settings = require('./models/Settings');
 
 const app = express();
 
-// 🔥 FIX: CORS properly configure
+// ============ CORS ============
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -41,10 +41,9 @@ mongoose.connection.on('disconnected', () => {
 
 // ============ PLAN CONFIG ============
 const DEFAULT_PLANS = {
-  demo: { 
-    id: 'demo', name: 'Demo', price: 0, period: 'Forever', rate: 0.0025, dailyLimit: 1000,
-    features: ['✅ 1000 captchas daily', '💰 ₹0.0025 per captcha', '🎯 Basic practice', '📊 Daily activity tracking'],
-    isDemo: true
+  free: { 
+    id: 'free', name: 'Free', price: 0, period: 'Forever', rate: 0.0025, dailyLimit: 1000,
+    features: ['✅ 1000 captchas daily', '💰 ₹0.0025 per captcha', '🎯 Basic practice', '📊 Daily activity tracking']
   },
   silver: { 
     id: 'silver', name: 'Silver', price: 100, period: 'month', rate: 0.025, dailyLimit: 1000,
@@ -63,19 +62,15 @@ const DEFAULT_PLANS = {
 
 const MIN_WITHDRAWAL = 100;
 
-// 🔥 Plan ke hisaab se allowed captcha types
+// Plan ke hisaab se allowed captcha types
 const PLAN_CAPTCHA_TYPES = {
-  demo: ['add', 'sub', 'mul', 'word', 'mixed'],
   free: ['add', 'sub', 'mul', 'word', 'mixed'],
   silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
   gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
-  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
-  premium: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
-  premium_plus: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed']
+  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed']
 };
 
-// ============ 🔥 GLOBAL NO-CACHE MIDDLEWARE ============
-// CRITICAL FIX: Har /api response pe no-cache headers
+// ============ GLOBAL NO-CACHE MIDDLEWARE ============
 app.use('/api/', (req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
@@ -84,14 +79,12 @@ app.use('/api/', (req, res, next) => {
   next();
 });
 
-// ============ HELPER: GET PLANS (FIXED) ============
+// ============ HELPER: GET PLANS ============
 async function getPlans() {
   try {
-    // 🔥 FIX: .lean() + fresh read (Mongoose cache bypass)
     const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     if (plansDoc && plansDoc.value) return plansDoc.value;
     
-    // Pehli baar — default save karo
     await Settings.findOneAndUpdate(
       { key: 'plans' }, 
       { key: 'plans', value: DEFAULT_PLANS }, 
@@ -104,12 +97,13 @@ async function getPlans() {
   }
 }
 
+// ============ SUBSCRIPTION CHECK (FIXED) ============
 async function checkAndUpdateSubscription(user) {
-  if (user.plan === 'demo' || user.plan === 'free') return user;
+  if (user.plan === 'free') return user;
   if (!user.planEndDate) return user;
   const now = new Date();
   if (now > new Date(user.planEndDate)) {
-    user.plan = 'demo';
+    user.plan = 'free';
     user.planStartDate = null;
     user.planEndDate = null;
     user.planAutoRenew = false;
@@ -120,24 +114,26 @@ async function checkAndUpdateSubscription(user) {
   return user;
 }
 
+// ============ GET USER RATE (FIXED) ============
 async function getUserRate(user) {
   const plans = await getPlans();
-  const isDemo = user.plan === 'demo' || user.plan === 'free';
-  if (isDemo) return plans.demo?.rate || plans.free?.rate || 0.025;
+  const isFree = user.plan === 'free';
+  if (isFree) return plans.free?.rate || 0.0025;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
-    return plans.demo?.rate || plans.free?.rate || 0.025;
+    return plans.free?.rate || 0.0025;
   }
-  return plans[user.plan]?.rate || plans.demo?.rate || 0.025;
+  return plans[user.plan]?.rate || plans.free?.rate || 0.0025;
 }
 
+// ============ GET USER DAILY LIMIT (FIXED) ============
 async function getUserDailyLimit(user) {
   const plans = await getPlans();
-  const isDemo = user.plan === 'demo' || user.plan === 'free';
-  if (isDemo) return plans.demo?.dailyLimit || plans.free?.dailyLimit || 50;
+  const isFree = user.plan === 'free';
+  if (isFree) return plans.free?.dailyLimit || 1000;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
-    return plans.demo?.dailyLimit || plans.free?.dailyLimit || 50;
+    return plans.free?.dailyLimit || 1000;
   }
-  return plans[user.plan]?.dailyLimit || plans.demo?.dailyLimit || 50;
+  return plans[user.plan]?.dailyLimit || plans.free?.dailyLimit || 1000;
 }
 
 // ============ RATE LIMITING ============
@@ -180,19 +176,17 @@ app.get('/', (req, res) => {
   res.json({ status: 'TypeCaptchaToEarn API is running ✅' });
 });
 
-// ============ 🔥 PUBLIC SETTINGS (FIXED) ============
+// ============ PUBLIC SETTINGS ============
 app.get('/api/settings/public', async (req, res) => {
   try {
-    // Extra cache bypass for safety
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
 
     const marquee = await Settings.findOne({ key: 'marquee' }).lean();
     const ads = await Settings.findOne({ key: 'ads' }).lean();
-    const adGate = await Settings.findOne({ key: 'adGate' }).lean(); // 🔥 FIX: key 'adGate'
+    const adGate = await Settings.findOne({ key: 'adGate' }).lean();
     
-    // 🔥 FIX: Direct DB fetch (fresh plans)
     const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
     
@@ -210,7 +204,7 @@ app.get('/api/settings/public', async (req, res) => {
   }
 });
 
-// ============ 🔥 PUBLIC PLANS (NEW ROUTE) ============
+// ============ PUBLIC PLANS ============
 app.get('/api/plans', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -227,7 +221,7 @@ app.get('/api/plans', async (req, res) => {
   }
 });
 
-// ============ PUBLIC PAYMENT SETTINGS (FIXED) ============
+// ============ PUBLIC PAYMENT SETTINGS ============
 app.get('/api/payment-settings', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -240,13 +234,13 @@ app.get('/api/payment-settings', async (req, res) => {
   }
 });
 
-// ============ PUBLIC AD GATE LINK (FIXED) ============
+// ============ PUBLIC AD GATE LINK ============
 app.get('/api/ad-gate-link', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     
-    const settings = await Settings.findOne({ key: 'adGate' }).lean(); // 🔥 FIX: 'adGate'
+    const settings = await Settings.findOne({ key: 'adGate' }).lean();
     const link = settings?.value?.link || '';
     res.json({ link });
   } catch (err) {
@@ -254,7 +248,7 @@ app.get('/api/ad-gate-link', async (req, res) => {
   }
 });
 
-// ============ REGISTER ============
+// ============ REGISTER (FIXED: plan 'free') ============
 app.post('/api/register', async (req, res) => {
   try {
     const { name, mobile, password, whatsapp, payment } = req.body;
@@ -269,7 +263,7 @@ app.post('/api/register', async (req, res) => {
 
     const hashedPass = await bcrypt.hash(password, 10);
     const user = await User.create({
-      name, mobile, whatsapp, payment, password: hashedPass, status: 'pending', plan: 'demo'
+      name, mobile, whatsapp, payment, password: hashedPass, status: 'pending', plan: 'free'
     });
 
     res.json({ success: true, message: 'Registration successful! Admin approval ke baad aap work start kar sakte hain.', userId: user._id });
@@ -324,18 +318,18 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ============ GET PROFILE ============
+// ============ GET PROFILE (FIXED) ============
 app.get('/api/profile', authUser, async (req, res) => {
   try {
     let user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const wasExpired = user.plan !== 'demo' && user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     const currentRate = await getUserRate(user);
     const dailyLimit = await getUserDailyLimit(user);
     const plans = await getPlans();
     const userObj = user.toObject();
-    userObj.isPremium = user.plan !== 'demo' && user.plan !== 'free' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
+    userObj.isPremium = user.plan !== 'free' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
     userObj.currentRate = currentRate;
     userObj.dailyLimit = dailyLimit;
     userObj.subscriptionExpired = wasExpired || user.subscriptionExpired || false;
@@ -343,7 +337,7 @@ app.get('/api/profile', authUser, async (req, res) => {
     const todayRec = (user.history || []).find(h => h.date === today);
     userObj.todaySolved = todayRec ? todayRec.solved : 0;
     userObj.remaining = Math.max(0, dailyLimit - userObj.todaySolved);
-    userObj.planFeatures = plans[user.plan]?.features || plans.demo?.features || plans.free?.features || [];
+    userObj.planFeatures = plans[user.plan]?.features || plans.free?.features || [];
     res.json(userObj);
   } catch (err) {
     console.error(err);
@@ -351,7 +345,7 @@ app.get('/api/profile', authUser, async (req, res) => {
   }
 });
 
-// ============ SUBMIT CAPTCHA ============
+// ============ SUBMIT CAPTCHA (FIXED) ============
 app.post('/api/submit-captcha', authUser, async (req, res) => {
   try {
     const { userAnswer, correctAnswer, captchaType } = req.body;
@@ -359,13 +353,13 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
 
-    const wasExpired = user.plan !== 'demo' && user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     if (wasExpired) {
       return res.status(403).json({ error: 'Your subscription has expired. Please purchase a plan to continue working.', subscriptionExpired: true });
     }
 
-    const allowedTypes = PLAN_CAPTCHA_TYPES[user.plan] || PLAN_CAPTCHA_TYPES.demo;
+    const allowedTypes = PLAN_CAPTCHA_TYPES[user.plan] || PLAN_CAPTCHA_TYPES.free;
     
     if (captchaType && captchaType !== 'undefined') {
       if (!allowedTypes.includes(captchaType)) {
@@ -374,7 +368,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     }
 
     const plans = await getPlans();
-    const userPlan = plans[user.plan] || plans.demo || plans.free;
+    const userPlan = plans[user.plan] || plans.free;
     const currentRate = userPlan.rate;
     const dailyLimit = userPlan.dailyLimit;
 
@@ -432,7 +426,7 @@ app.post('/api/purchase-premium', authUser, async (req, res) => {
   try {
     const { planId } = req.body;
     const plans = await getPlans();
-    if (!plans[planId] || planId === 'demo' || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
+    if (!plans[planId] || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.pendingPlan = planId;
@@ -526,7 +520,6 @@ app.get('/api/admin/pending-plans', authAdmin, async (req, res) => {
   }
 });
 
-// 🔥 FIX: .lean() + no cache
 app.get('/api/admin/plans', authAdmin, async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -547,13 +540,12 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
   }
 });
 
-// 🔥 FIX: Ensure `id` field + proper save
+// ============ UPDATE PLANS (FIXED: 'free' required) ============
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     let { plans } = req.body;
     if (!plans) return res.status(400).json({ error: 'plans required' });
     
-    // Handle both array and object
     let plansObj = {};
     if (Array.isArray(plans)) {
       plans.forEach(p => { plansObj[p.id] = p; });
@@ -561,8 +553,7 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       plansObj = plans;
     }
     
-    // Validate all 4 plans
-    const required = ['demo', 'silver', 'gold', 'platinum'];
+    const required = ['free', 'silver', 'gold', 'platinum'];
     for (const pid of required) {
       const p = plansObj[pid];
       if (!p) return res.status(400).json({ error: `Missing plan: ${pid}` });
@@ -571,17 +562,15 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       if (p.dailyLimit == null || isNaN(p.dailyLimit)) return res.status(400).json({ error: `${pid} ka dailyLimit required hai` });
       if (p.price == null || isNaN(p.price)) return res.status(400).json({ error: `${pid} ka price required hai` });
       
-      // 🔥 FIX: Ensure `id` field hai + numbers convert
       plansObj[pid].id = pid;
       plansObj[pid].rate = Number(p.rate);
       plansObj[pid].dailyLimit = Number(p.dailyLimit);
       plansObj[pid].price = Number(p.price);
       plansObj[pid].name = String(p.name);
-      plansObj[pid].period = p.period || (pid === 'demo' ? 'Forever' : 'month');
+      plansObj[pid].period = p.period || (pid === 'free' ? 'Forever' : 'month');
       plansObj[pid].features = Array.isArray(p.features) ? p.features : [];
     }
     
-    // Save to database
     const saved = await Settings.findOneAndUpdate(
       { key: 'plans' }, 
       { key: 'plans', value: plansObj }, 
@@ -602,7 +591,7 @@ app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
     const { planId } = req.body;
     const plans = await getPlans();
-    if (!plans[planId] || planId === 'demo' || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
+    if (!plans[planId] || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const now = new Date();
@@ -643,9 +632,9 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
     const plans = await getPlans();
     if (!plans[plan]) return res.status(400).json({ error: 'Invalid plan' });
     const now = new Date();
-    const isDemo = plan === 'demo' || plan === 'free';
-    const endDate = isDemo ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const user = await User.findByIdAndUpdate(req.params.id, { plan, planStartDate: isDemo ? null : now, planEndDate: endDate, subscriptionExpired: false }, { new: true }).select('-password');
+    const isFree = plan === 'free';
+    const endDate = isFree ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const user = await User.findByIdAndUpdate(req.params.id, { plan, planStartDate: isFree ? null : now, planEndDate: endDate, subscriptionExpired: false }, { new: true }).select('-password');
     res.json({ success: true, user });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -735,7 +724,7 @@ app.get('/api/admin/overview', authAdmin, async (req, res) => {
     const pendingUsers = users.filter(u => u.status === 'pending').length;
     const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
     const pendingPlans = users.filter(u => u.pendingPlan).length;
-    const premiumUsers = users.filter(u => u.plan !== 'demo' && u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
+    const premiumUsers = users.filter(u => u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
     const premiumIncome = users.reduce((s, u) => s + (u.totalPaidForPremium || 0), 0);
     res.json({
       totalUsers: users.length, activeToday, totalSolved, totalPayout: parseFloat(totalPayout.toFixed(2)),
@@ -868,7 +857,6 @@ app.post('/api/admin/settings/payment', authAdmin, async (req, res) => {
   }
 });
 
-// 🔥 ADMIN: UPDATE AD GATE LINK (ONLY ONE - FIXED KEY)
 app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
   try {
     const { link } = req.body;
@@ -1074,15 +1062,16 @@ app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ============ REVOKE PLAN (FIXED: 'free' instead of 'demo') ============
 app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
   try {
     const { reason } = req.body;
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.plan === 'demo' || user.plan === 'free') return res.status(400).json({ error: 'User is already on Free/Demo plan' });
+    if (user.plan === 'free') return res.status(400).json({ error: 'User is already on Free plan' });
     
     const revokedPlan = user.plan;
-    user.plan = 'demo';
+    user.plan = 'free';
     user.planStartDate = null;
     user.planEndDate = null;
     user.pendingPlan = null;
@@ -1092,7 +1081,7 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     if (!user.planRevokeLogs) user.planRevokeLogs = [];
     user.planRevokeLogs.push({ revokedPlan: revokedPlan, reason: reason || 'Admin revoke', date: new Date() });
     await user.save();
-    res.json({ success: true, message: `${user.name}'s premium plan revoked. Reverted to Demo plan.` });
+    res.json({ success: true, message: `${user.name}'s premium plan revoked. Reverted to Free plan.` });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
