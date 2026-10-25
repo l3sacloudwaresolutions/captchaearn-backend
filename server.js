@@ -42,8 +42,8 @@ mongoose.connection.on('disconnected', () => {
 // ============ PLAN CONFIG ============
 const DEFAULT_PLANS = {
   demo: { 
-    id: 'demo', name: 'Demo', price: 0, period: 'Forever', rate: 0.025, dailyLimit: 50,
-    features: ['✅ 50 captchas daily', '💰 ₹0.025 per captcha', '🎯 Basic practice', '📊 Daily activity tracking'],
+    id: 'demo', name: 'Demo', price: 0, period: 'Forever', rate: 0.0025, dailyLimit: 500,
+    features: ['✅ 500 captchas daily', '💰 ₹0.0025 per captcha', '🎯 Basic practice', '📊 Daily activity tracking'],
     isDemo: true
   },
   silver: { 
