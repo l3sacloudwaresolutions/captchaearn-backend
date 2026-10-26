@@ -62,7 +62,6 @@ const DEFAULT_PLANS = {
 
 const MIN_WITHDRAWAL = 100;
 
-// 🔥 FIX: 'demo' wapas add kiya taaki purane users crash na karein
 const PLAN_CAPTCHA_TYPES = {
   free: ['add', 'sub', 'mul', 'word', 'mixed'],
   demo: ['add', 'sub', 'mul', 'word', 'mixed'], 
@@ -98,13 +97,25 @@ async function getPlans() {
   }
 }
 
-// ============ SUBSCRIPTION CHECK ============
+// ============ SUBSCRIPTION CHECK (FIXED) ============
 async function checkAndUpdateSubscription(user) {
+  // Agar plan free ya demo hai toh kuch mat karo
   if (user.plan === 'free' || user.plan === 'demo') {
-    if (user.plan === 'demo') user.plan = 'free'; // Auto-fix purane users
+    if (user.plan === 'demo') user.plan = 'free';
     return user;
   }
-  if (!user.planEndDate) return user;
+  
+  // Agar premium plan hai lekin date nahi hai, toh 30 din ki date de do (reset na ho)
+  if (!user.planEndDate) {
+    const now = new Date();
+    const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    user.planEndDate = endDate;
+    user.planStartDate = now;
+    await user.save();
+    return user;
+  }
+  
+  // Agar date khatam ho gayi hai toh free karo
   const now = new Date();
   if (now > new Date(user.planEndDate)) {
     user.plan = 'free';
@@ -372,8 +383,6 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     }
 
     const plans = await getPlans();
-    
-    // 🔥 FIX: Yahan agar user ka plan 'demo' hai toh woh 'free' use karega aur crash nahi hoga
     const userPlan = plans[user.plan] || plans.free || plans.demo;
     const currentRate = userPlan.rate || 0.0025;
     const dailyLimit = userPlan.dailyLimit || 1000;
