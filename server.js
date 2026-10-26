@@ -62,9 +62,10 @@ const DEFAULT_PLANS = {
 
 const MIN_WITHDRAWAL = 100;
 
-// Plan ke hisaab se allowed captcha types
+// 🔥 FIX: 'demo' wapas add kiya taaki purane users crash na karein
 const PLAN_CAPTCHA_TYPES = {
   free: ['add', 'sub', 'mul', 'word', 'mixed'],
+  demo: ['add', 'sub', 'mul', 'word', 'mixed'], 
   silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
   gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
   platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed']
@@ -97,9 +98,12 @@ async function getPlans() {
   }
 }
 
-// ============ SUBSCRIPTION CHECK (FIXED) ============
+// ============ SUBSCRIPTION CHECK ============
 async function checkAndUpdateSubscription(user) {
-  if (user.plan === 'free') return user;
+  if (user.plan === 'free' || user.plan === 'demo') {
+    if (user.plan === 'demo') user.plan = 'free'; // Auto-fix purane users
+    return user;
+  }
   if (!user.planEndDate) return user;
   const now = new Date();
   if (now > new Date(user.planEndDate)) {
@@ -114,10 +118,10 @@ async function checkAndUpdateSubscription(user) {
   return user;
 }
 
-// ============ GET USER RATE (FIXED) ============
+// ============ GET USER RATE ============
 async function getUserRate(user) {
   const plans = await getPlans();
-  const isFree = user.plan === 'free';
+  const isFree = user.plan === 'free' || user.plan === 'demo';
   if (isFree) return plans.free?.rate || 0.0025;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
     return plans.free?.rate || 0.0025;
@@ -125,10 +129,10 @@ async function getUserRate(user) {
   return plans[user.plan]?.rate || plans.free?.rate || 0.0025;
 }
 
-// ============ GET USER DAILY LIMIT (FIXED) ============
+// ============ GET USER DAILY LIMIT ============
 async function getUserDailyLimit(user) {
   const plans = await getPlans();
-  const isFree = user.plan === 'free';
+  const isFree = user.plan === 'free' || user.plan === 'demo';
   if (isFree) return plans.free?.dailyLimit || 1000;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
     return plans.free?.dailyLimit || 1000;
@@ -248,7 +252,7 @@ app.get('/api/ad-gate-link', async (req, res) => {
   }
 });
 
-// ============ REGISTER (FIXED: plan 'free') ============
+// ============ REGISTER ============
 app.post('/api/register', async (req, res) => {
   try {
     const { name, mobile, password, whatsapp, payment } = req.body;
@@ -318,18 +322,18 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ============ GET PROFILE (FIXED) ============
+// ============ GET PROFILE ============
 app.get('/api/profile', authUser, async (req, res) => {
   try {
     let user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'free' && user.plan !== 'demo' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     const currentRate = await getUserRate(user);
     const dailyLimit = await getUserDailyLimit(user);
     const plans = await getPlans();
     const userObj = user.toObject();
-    userObj.isPremium = user.plan !== 'free' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
+    userObj.isPremium = user.plan !== 'free' && user.plan !== 'demo' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
     userObj.currentRate = currentRate;
     userObj.dailyLimit = dailyLimit;
     userObj.subscriptionExpired = wasExpired || user.subscriptionExpired || false;
@@ -345,7 +349,7 @@ app.get('/api/profile', authUser, async (req, res) => {
   }
 });
 
-// ============ SUBMIT CAPTCHA (FIXED) ============
+// ============ SUBMIT CAPTCHA ============
 app.post('/api/submit-captcha', authUser, async (req, res) => {
   try {
     const { userAnswer, correctAnswer, captchaType } = req.body;
@@ -353,7 +357,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
 
-    const wasExpired = user.plan !== 'free' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'free' && user.plan !== 'demo' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     if (wasExpired) {
       return res.status(403).json({ error: 'Your subscription has expired. Please purchase a plan to continue working.', subscriptionExpired: true });
@@ -368,9 +372,11 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     }
 
     const plans = await getPlans();
-    const userPlan = plans[user.plan] || plans.free;
-    const currentRate = userPlan.rate;
-    const dailyLimit = userPlan.dailyLimit;
+    
+    // 🔥 FIX: Yahan agar user ka plan 'demo' hai toh woh 'free' use karega aur crash nahi hoga
+    const userPlan = plans[user.plan] || plans.free || plans.demo;
+    const currentRate = userPlan.rate || 0.0025;
+    const dailyLimit = userPlan.dailyLimit || 1000;
 
     const today = new Date().toISOString().split('T')[0];
     if (user.todayResetDate !== today) {
@@ -426,7 +432,7 @@ app.post('/api/purchase-premium', authUser, async (req, res) => {
   try {
     const { planId } = req.body;
     const plans = await getPlans();
-    if (!plans[planId] || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
+    if (!plans[planId] || planId === 'free' || planId === 'demo') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.pendingPlan = planId;
@@ -540,7 +546,7 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ UPDATE PLANS (FIXED: 'free' required) ============
+// ============ UPDATE PLANS ============
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     let { plans } = req.body;
@@ -591,7 +597,7 @@ app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
     const { planId } = req.body;
     const plans = await getPlans();
-    if (!plans[planId] || planId === 'free') return res.status(400).json({ error: 'Invalid plan' });
+    if (!plans[planId] || planId === 'free' || planId === 'demo') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const now = new Date();
@@ -632,7 +638,7 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
     const plans = await getPlans();
     if (!plans[plan]) return res.status(400).json({ error: 'Invalid plan' });
     const now = new Date();
-    const isFree = plan === 'free';
+    const isFree = plan === 'free' || plan === 'demo';
     const endDate = isFree ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const user = await User.findByIdAndUpdate(req.params.id, { plan, planStartDate: isFree ? null : now, planEndDate: endDate, subscriptionExpired: false }, { new: true }).select('-password');
     res.json({ success: true, user });
@@ -724,7 +730,7 @@ app.get('/api/admin/overview', authAdmin, async (req, res) => {
     const pendingUsers = users.filter(u => u.status === 'pending').length;
     const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
     const pendingPlans = users.filter(u => u.pendingPlan).length;
-    const premiumUsers = users.filter(u => u.plan !== 'free' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
+    const premiumUsers = users.filter(u => u.plan !== 'free' && u.plan !== 'demo' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
     const premiumIncome = users.reduce((s, u) => s + (u.totalPaidForPremium || 0), 0);
     res.json({
       totalUsers: users.length, activeToday, totalSolved, totalPayout: parseFloat(totalPayout.toFixed(2)),
@@ -1062,13 +1068,12 @@ app.post('/api/admin/deduct-balance/:id', authAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// ============ REVOKE PLAN (FIXED: 'free' instead of 'demo') ============
 app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
   try {
     const { reason } = req.body;
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.plan === 'free') return res.status(400).json({ error: 'User is already on Free plan' });
+    if (user.plan === 'free' || user.plan === 'demo') return res.status(400).json({ error: 'User is already on Free plan' });
     
     const revokedPlan = user.plan;
     user.plan = 'free';
