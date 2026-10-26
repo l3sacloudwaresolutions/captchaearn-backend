@@ -67,7 +67,7 @@ const PLAN_CAPTCHA_TYPES = {
   demo: ['add', 'sub', 'mul', 'word', 'mixed'], 
   silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
   gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
-  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed']
+  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
 };
 
 // ============ GLOBAL NO-CACHE MIDDLEWARE ============
