@@ -16,7 +16,6 @@ const userSchema = new mongoose.Schema({
   },
   status: { type: String, enum: ['pending', 'approved', 'disqualified'], default: 'pending' },
   
-  // Plan fields
   plan: { type: String, default: 'free' },
   planStartDate: { type: Date, default: null },
   planEndDate: { type: Date, default: null },
@@ -29,14 +28,12 @@ const userSchema = new mongoose.Schema({
   subscriptionExpired: { type: Boolean, default: false },
   expiredAt: { type: Date, default: null },
   
-  // Plan revoke logs
   planRevokeLogs: [{
     revokedPlan: String,
     reason: String,
     date: Date
   }],
   
-  // Daily tracking
   todayCaptchas: { type: Number, default: 0 },
   todayResetDate: { type: String, default: null },
   
@@ -57,7 +54,7 @@ const userSchema = new mongoose.Schema({
     correct: { type: Number, default: 0 },
     wrong: { type: Number, default: 0 },
     earned: { type: Number, default: 0 },
-    bonus: { type: Number, default: 0 }   // ✅ ADDED
+    bonus: { type: Number, default: 0 }   // ✅ YEH ADD KARO
   }],
   registeredAt: { type: Date, default: Date.now }
 });
