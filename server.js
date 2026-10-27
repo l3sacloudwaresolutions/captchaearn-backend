@@ -14,7 +14,7 @@ const app = express();
 
 // ============ CORS ============
 app.use(cors({
-  origin: '*',
+  origin: 'https://typecaptchatoearn.in', // Apni website ka URL daalo
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'username', 'password']
 }));
