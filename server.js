@@ -192,7 +192,11 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests. Please try again later.' },
   standardHeaders: true, legacyHeaders: false
 });
-const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 'Too many attempts. Please wait 1 minute.' } });
+const authLimiter = rateLimit({ 
+  windowMs: 60 * 1000, 
+  max: 5, // 10 ki jagah 5 attempt per minute kar do
+  message: { error: 'Too many attempts. Please wait 1 minute.' } 
+});
 const captchaLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Slow down! Too many captcha submissions.' } });
 
 app.use('/api/', generalLimiter);
