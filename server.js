@@ -1161,16 +1161,18 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     user.planStartDate = null;
     user.planEndDate = null;
     user.pendingPlan = null;
-    user.subscriptionExpired = true;
-    user.expiredAt = new Date();
+    
+    // 🔥 YEH LINE CHANGE KARNI HAI
+    user.subscriptionExpired = false; 
+    user.expiredAt = null;
     
     if (!user.planRevokeLogs) user.planRevokeLogs = [];
     user.planRevokeLogs.push({ revokedPlan: revokedPlan, reason: reason || 'Admin revoke', date: new Date() });
+    
     await user.save();
     res.json({ success: true, message: `${user.name}'s premium plan revoked. Reverted to Free plan.` });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
-
 // ============ START SERVER ============
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
