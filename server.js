@@ -57,6 +57,18 @@ const DEFAULT_PLANS = {
   platinum: { 
     id: 'platinum', name: 'Platinum', price: 500, period: 'month', rate: 0.10, dailyLimit: 99999,
     features: ['♾️ Unlimited captchas', '💰 4x earning (₹0.10)', '⚡ 24/7 priority support', '🚀 Instant processing', '📊 Advanced analytics', '🎁 Daily bonus ₹5', '💎 Exclusive badges']
+  },
+  // 🔥 NEW: Diamond Plan (1 Year)
+  diamond: { 
+    id: 'diamond', name: 'Diamond', price: 2999, period: 'year', rate: 0.12, dailyLimit: 99999,
+    duration: 365, // 365 days = 1 year
+    features: ['♾️ Unlimited captchas (1 Year)', '💰 ₹0.12 per captcha', '⚡ VIP priority support', '🚀 Instant processing', '📊 Advanced analytics', '🎁 Daily bonus ₹10', '💎 Exclusive Diamond badge']
+  },
+  // 🔥 NEW: Legend Plan (Lifetime)
+  legend: { 
+    id: 'legend', name: 'Legend', price: 5999, period: 'lifetime', rate: 0.12, dailyLimit: 99999,
+    duration: null, // null = lifetime (no expiry)
+    features: ['♾️ Unlimited captchas (Lifetime)', '💰 ₹0.12 per captcha', '👑 Dedicated manager', '🚀 Instant processing', '📊 Advanced analytics', '🎁 Daily bonus ₹15', '👑 Legend badge forever', '🎉 All future features FREE']
   }
 };
 
@@ -67,7 +79,10 @@ const PLAN_CAPTCHA_TYPES = {
   demo: ['add', 'sub', 'mul', 'word', 'mixed'], 
   silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
   gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
-  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
+  platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
+  // 🔥 NEW: Diamond & Legend — same difficulty as Platinum (hardest types)
+  diamond: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
+  legend: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
 };
 
 // ============ GLOBAL NO-CACHE MIDDLEWARE ============
@@ -97,7 +112,7 @@ async function getPlans() {
   }
 }
 
-// ============ SUBSCRIPTION CHECK (FIXED) ============
+// ============ SUBSCRIPTION CHECK (UPDATED FOR DIAMOND + LEGEND) ============
 async function checkAndUpdateSubscription(user) {
   // Agar plan free ya demo hai toh kuch mat karo
   if (user.plan === 'free' || user.plan === 'demo') {
@@ -105,10 +120,27 @@ async function checkAndUpdateSubscription(user) {
     return user;
   }
   
-  // Agar premium plan hai lekin date nahi hai, toh 30 din ki date de do (reset na ho)
+  // 🔥 LEGEND = Lifetime — kabhi expire nahi hoga
+  if (user.plan === 'legend') {
+    // Ensure dates null hain
+    if (user.planEndDate) {
+      user.planEndDate = null;
+      user.planStartDate = null;
+      await user.save();
+    }
+    return user;
+  }
+  
+  // 🔥 DIAMOND aur baaki premium plans
+  const plans = await getPlans();
+  const planConfig = plans[user.plan];
+  
+  // Agar premium plan hai lekin date nahi hai, toh duration ke hisaab se date do
   if (!user.planEndDate) {
     const now = new Date();
-    const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    let durationDays = planConfig?.duration || 30; // default 30 din
+    if (user.plan === 'diamond') durationDays = 365; // 1 year
+    const endDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     user.planEndDate = endDate;
     user.planStartDate = now;
     await user.save();
@@ -134,6 +166,8 @@ async function getUserRate(user) {
   const plans = await getPlans();
   const isFree = user.plan === 'free' || user.plan === 'demo';
   if (isFree) return plans.free?.rate || 0.0025;
+  // Legend = lifetime, no expiry check needed
+  if (user.plan === 'legend') return plans.legend?.rate || 0.12;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
     return plans.free?.rate || 0.0025;
   }
@@ -145,6 +179,7 @@ async function getUserDailyLimit(user) {
   const plans = await getPlans();
   const isFree = user.plan === 'free' || user.plan === 'demo';
   if (isFree) return plans.free?.dailyLimit || 1000;
+  if (user.plan === 'legend') return plans.legend?.dailyLimit || 99999;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
     return plans.free?.dailyLimit || 1000;
   }
@@ -338,13 +373,13 @@ app.get('/api/profile', authUser, async (req, res) => {
   try {
     let user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const wasExpired = user.plan !== 'free' && user.plan !== 'demo' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'free' && user.plan !== 'demo' && user.plan !== 'legend' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     const currentRate = await getUserRate(user);
     const dailyLimit = await getUserDailyLimit(user);
     const plans = await getPlans();
     const userObj = user.toObject();
-    userObj.isPremium = user.plan !== 'free' && user.plan !== 'demo' && (!user.planEndDate || new Date() < new Date(user.planEndDate));
+    userObj.isPremium = user.plan !== 'free' && user.plan !== 'demo' && (user.plan === 'legend' || !user.planEndDate || new Date() < new Date(user.planEndDate));
     userObj.currentRate = currentRate;
     userObj.dailyLimit = dailyLimit;
     userObj.subscriptionExpired = wasExpired || user.subscriptionExpired || false;
@@ -368,7 +403,7 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.status !== 'approved') return res.status(403).json({ error: 'Account approve nahi hua' });
 
-    const wasExpired = user.plan !== 'free' && user.plan !== 'demo' && user.planEndDate && new Date() > new Date(user.planEndDate);
+    const wasExpired = user.plan !== 'free' && user.plan !== 'demo' && user.plan !== 'legend' && user.planEndDate && new Date() > new Date(user.planEndDate);
     await checkAndUpdateSubscription(user);
     if (wasExpired) {
       return res.status(403).json({ error: 'Your subscription has expired. Please purchase a plan to continue working.', subscriptionExpired: true });
@@ -555,7 +590,7 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ UPDATE PLANS ============
+// ============ UPDATE PLANS (UPDATED: 6 PLANS) ============
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     let { plans } = req.body;
@@ -568,7 +603,8 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       plansObj = plans;
     }
     
-    const required = ['free', 'silver', 'gold', 'platinum'];
+    // 🔥 UPDATED: Added diamond + legend to required
+    const required = ['free', 'silver', 'gold', 'platinum', 'diamond', 'legend'];
     for (const pid of required) {
       const p = plansObj[pid];
       if (!p) return res.status(400).json({ error: `Missing plan: ${pid}` });
@@ -582,8 +618,12 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       plansObj[pid].dailyLimit = Number(p.dailyLimit);
       plansObj[pid].price = Number(p.price);
       plansObj[pid].name = String(p.name);
-      plansObj[pid].period = p.period || (pid === 'free' ? 'Forever' : 'month');
+      plansObj[pid].period = p.period || (pid === 'free' ? 'Forever' : pid === 'legend' ? 'lifetime' : pid === 'diamond' ? 'year' : 'month');
       plansObj[pid].features = Array.isArray(p.features) ? p.features : [];
+      
+      // 🔥 Duration preserve karo
+      if (pid === 'diamond') plansObj[pid].duration = 365;
+      if (pid === 'legend') plansObj[pid].duration = null;
     }
     
     const saved = await Settings.findOneAndUpdate(
@@ -592,7 +632,7 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       { upsert: true, new: true, runValidators: false }
     ).lean();
     
-    console.log('✅ Plans updated:', Object.keys(plansObj), 'Silver price:', plansObj.silver.price);
+    console.log('✅ Plans updated:', Object.keys(plansObj));
     
     res.set('Cache-Control', 'no-store');
     res.json({ success: true, message: 'Plans updated successfully!', plans: saved.value });
@@ -602,6 +642,7 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   }
 });
 
+// ============ APPROVE PLAN (UPDATED: Diamond = 365 days, Legend = Lifetime) ============
 app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
     const { planId } = req.body;
@@ -609,10 +650,24 @@ app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
     if (!plans[planId] || planId === 'free' || planId === 'demo') return res.status(400).json({ error: 'Invalid plan' });
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    
     const now = new Date();
     let startFrom = now;
     if (user.plan === planId && user.planEndDate && new Date(user.planEndDate) > now) startFrom = new Date(user.planEndDate);
-    const endDate = new Date(startFrom.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
+    // 🔥 Duration logic
+    let endDate = null;
+    if (planId === 'legend') {
+      // Lifetime — no expiry
+      endDate = null;
+    } else if (planId === 'diamond') {
+      // 1 year = 365 days
+      endDate = new Date(startFrom.getTime() + 365 * 24 * 60 * 60 * 1000);
+    } else {
+      // Default: 30 days (Silver, Gold, Platinum)
+      endDate = new Date(startFrom.getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
+    
     user.plan = planId;
     user.planStartDate = now;
     user.planEndDate = endDate;
@@ -622,7 +677,12 @@ app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
     user.subscriptionExpired = false;
     user.totalPaidForPremium = (user.totalPaidForPremium || 0) + plans[planId].price;
     await user.save();
-    res.json({ success: true, message: `${plans[planId].name} plan activated!` });
+    
+    const msg = planId === 'legend' 
+      ? `${plans[planId].name} plan activated! Lifetime access 🎉` 
+      : `${plans[planId].name} plan activated!${planId === 'diamond' ? ' Valid for 1 year.' : ''}`;
+    
+    res.json({ success: true, message: msg });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -641,6 +701,7 @@ app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
+// ============ SET PLAN (UPDATED: Diamond = 365 days, Legend = Lifetime) ============
 app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   try {
     const { plan } = req.body;
@@ -648,7 +709,18 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
     if (!plans[plan]) return res.status(400).json({ error: 'Invalid plan' });
     const now = new Date();
     const isFree = plan === 'free' || plan === 'demo';
-    const endDate = isFree ? null : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
+    let endDate = null;
+    if (!isFree) {
+      if (plan === 'legend') {
+        endDate = null; // Lifetime
+      } else if (plan === 'diamond') {
+        endDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+      } else {
+        endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      }
+    }
+    
     const user = await User.findByIdAndUpdate(req.params.id, { plan, planStartDate: isFree ? null : now, planEndDate: endDate, subscriptionExpired: false }, { new: true }).select('-password');
     res.json({ success: true, user });
   } catch (err) {
@@ -739,7 +811,7 @@ app.get('/api/admin/overview', authAdmin, async (req, res) => {
     const pendingUsers = users.filter(u => u.status === 'pending').length;
     const pendingWithdrawals = await Withdrawal.countDocuments({ status: 'pending' });
     const pendingPlans = users.filter(u => u.pendingPlan).length;
-    const premiumUsers = users.filter(u => u.plan !== 'free' && u.plan !== 'demo' && u.planEndDate && new Date() < new Date(u.planEndDate)).length;
+    const premiumUsers = users.filter(u => u.plan !== 'free' && u.plan !== 'demo' && (u.plan === 'legend' || (u.planEndDate && new Date() < new Date(u.planEndDate)))).length;
     const premiumIncome = users.reduce((s, u) => s + (u.totalPaidForPremium || 0), 0);
     res.json({
       totalUsers: users.length, activeToday, totalSolved, totalPayout: parseFloat(totalPayout.toFixed(2)),
