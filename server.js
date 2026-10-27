@@ -14,12 +14,7 @@ const app = express();
 
 // ============ CORS ============
 app.use(cors({
-  origin: [
-    'https://typecaptchatoearn.in', 
-    'https://www.typecaptchatoearn.in',
-    'http://typecaptchatoearn.in',
-    'http://www.typecaptchatoearn.in'
-  ], // www aur bina www dono allow kar diye
+  origin: '*', // 🔥 Sab URLs ko allow kar diya
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'username', 'password']
 }));
