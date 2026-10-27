@@ -29,6 +29,13 @@ const userSchema = new mongoose.Schema({
   subscriptionExpired: { type: Boolean, default: false },
   expiredAt: { type: Date, default: null },
   
+  // Plan revoke logs
+  planRevokeLogs: [{
+    revokedPlan: String,
+    reason: String,
+    date: Date
+  }],
+  
   // Daily tracking
   todayCaptchas: { type: Number, default: 0 },
   todayResetDate: { type: String, default: null },
@@ -49,7 +56,8 @@ const userSchema = new mongoose.Schema({
     solved: { type: Number, default: 0 },
     correct: { type: Number, default: 0 },
     wrong: { type: Number, default: 0 },
-    earned: { type: Number, default: 0 }
+    earned: { type: Number, default: 0 },
+    bonus: { type: Number, default: 0 }   // ✅ ADDED
   }],
   registeredAt: { type: Date, default: Date.now }
 });
