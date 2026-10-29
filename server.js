@@ -240,6 +240,7 @@ app.get('/api/settings/public', async (req, res) => {
     const marquee = await Settings.findOne({ key: 'marquee' }).lean();
     const ads = await Settings.findOne({ key: 'ads' }).lean();
     const adGate = await Settings.findOne({ key: 'adGate' }).lean();
+    const workAdGate = await Settings.findOne({ key: 'workAdGate' }).lean(); // 🔥 NEW
     
     const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
@@ -250,14 +251,14 @@ app.get('/api/settings/public', async (req, res) => {
       marquee: marquee ? marquee.value : '', 
       ads: ads ? ads.value : [], 
       adGateLink: adGateLink,
-      plans: plans 
+      plans: plans,
+      workAdGate: workAdGate ? workAdGate.value : null // 🔥 NEW
     });
   } catch (err) {
     console.error('Public settings error:', err);
-    res.json({ marquee: '', ads: [], adGateLink: '', plans: DEFAULT_PLANS });
+    res.json({ marquee: '', ads: [], adGateLink: '', plans: DEFAULT_PLANS, workAdGate: null }); // 🔥 NEW
   }
 });
-
 // ============ PUBLIC PLANS ============
 app.get('/api/plans', async (req, res) => {
   try {
@@ -962,6 +963,25 @@ app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
     res.json({ success: true, message: 'Ad Gate Link saved!' });
   } catch (err) {
     console.error('Ad gate save error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ WORK AD GATE (NEW) ============
+app.post('/api/admin/settings/work-ad-gate', authAdmin, async (req, res) => {
+  try {
+    const { workAdGate } = req.body;
+    if (!workAdGate) return res.status(400).json({ error: 'workAdGate data required' });
+    
+    await Settings.findOneAndUpdate(
+      { key: 'workAdGate' },
+      { key: 'workAdGate', value: workAdGate },
+      { upsert: true, new: true }
+    );
+    
+    res.json({ success: true, message: 'Work Ad Gate saved successfully!' });
+  } catch (err) {
+    console.error('Work ad gate save error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
