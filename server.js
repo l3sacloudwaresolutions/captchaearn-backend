@@ -14,7 +14,7 @@ const app = express();
 
 // ============ CORS ============
 app.use(cors({
-  origin: '*', // 🔥 Sab URLs ko allow kar diya
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'username', 'password']
 }));
@@ -58,16 +58,14 @@ const DEFAULT_PLANS = {
     id: 'platinum', name: 'Platinum', price: 500, period: 'month', rate: 0.10, dailyLimit: 99999,
     features: ['♾️ Unlimited captchas', '💰 4x earning (₹0.10)', '⚡ 24/7 priority support', '🚀 Instant processing', '📊 Advanced analytics', '🎁 Daily bonus ₹5', '💎 Exclusive badges']
   },
-  // 🔥 NEW: Diamond Plan (1 Year)
   diamond: { 
     id: 'diamond', name: 'Diamond', price: 2999, period: 'year', rate: 0.12, dailyLimit: 99999,
-    duration: 365, // 365 days = 1 year
+    duration: 365,
     features: ['♾️ Unlimited captchas (1 Year)', '💰 ₹0.12 per captcha', '⚡ VIP priority support', '🚀 Instant processing', '📊 Advanced analytics', '🎁 Daily bonus ₹10', '💎 Exclusive Diamond badge']
   },
-  // 🔥 NEW: Legend Plan (Lifetime)
   legend: { 
     id: 'legend', name: 'Legend', price: 5999, period: 'lifetime', rate: 0.12, dailyLimit: 99999,
-    duration: null, // null = lifetime (no expiry)
+    duration: null,
     features: ['♾️ Unlimited captchas (Lifetime)', '💰 ₹0.12 per captcha', '👑 Dedicated manager', '🚀 Instant processing', '📊 Advanced analytics', '🎁 Daily bonus ₹15', '👑 Legend badge forever', '🎉 All future features FREE']
   }
 };
@@ -80,7 +78,6 @@ const PLAN_CAPTCHA_TYPES = {
   silver: ['add', 'sub', 'mul', 'div', 'word', 'mixed'],
   gold: ['addHard', 'subHard', 'mulHard', 'divHard', 'wordHard', 'mixedHard', 'add', 'sub', 'mul', 'div', 'word', 'mixed'],
   platinum: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
-  // 🔥 NEW: Diamond & Legend — same difficulty as Platinum (hardest types)
   diamond: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard'],
   legend: ['addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard', 'mixedVeryVeryHard', 'wordVeryVeryHard', 'addVeryHard', 'subVeryHard', 'mulVeryHard', 'divVeryHard', 'wordVeryHard', 'mixedVeryHard']
 };
@@ -112,17 +109,33 @@ async function getPlans() {
   }
 }
 
-// ============ SUBSCRIPTION CHECK (UPDATED FOR DIAMOND + LEGEND) ============
+// ============ 🔥 NEW HELPER: CHECK PLANS & PAYMENT ENABLED ============
+async function isPlansEnabled() {
+  try {
+    const toggle = await Settings.findOne({ key: 'plansEnabled' }).lean();
+    return toggle ? toggle.value !== false : true;
+  } catch (err) {
+    return true;
+  }
+}
+
+async function isPaymentEnabled() {
+  try {
+    const toggle = await Settings.findOne({ key: 'paymentEnabled' }).lean();
+    return toggle ? toggle.value !== false : true;
+  } catch (err) {
+    return true;
+  }
+}
+
+// ============ SUBSCRIPTION CHECK ============
 async function checkAndUpdateSubscription(user) {
-  // Agar plan free ya demo hai toh kuch mat karo
   if (user.plan === 'free' || user.plan === 'demo') {
     if (user.plan === 'demo') user.plan = 'free';
     return user;
   }
   
-  // 🔥 LEGEND = Lifetime — kabhi expire nahi hoga
   if (user.plan === 'legend') {
-    // Ensure dates null hain
     if (user.planEndDate) {
       user.planEndDate = null;
       user.planStartDate = null;
@@ -131,15 +144,13 @@ async function checkAndUpdateSubscription(user) {
     return user;
   }
   
-  // 🔥 DIAMOND aur baaki premium plans
   const plans = await getPlans();
   const planConfig = plans[user.plan];
   
-  // Agar premium plan hai lekin date nahi hai, toh duration ke hisaab se date do
   if (!user.planEndDate) {
     const now = new Date();
-    let durationDays = planConfig?.duration || 30; // default 30 din
-    if (user.plan === 'diamond') durationDays = 365; // 1 year
+    let durationDays = planConfig?.duration || 30;
+    if (user.plan === 'diamond') durationDays = 365;
     const endDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     user.planEndDate = endDate;
     user.planStartDate = now;
@@ -147,7 +158,6 @@ async function checkAndUpdateSubscription(user) {
     return user;
   }
   
-  // Agar date khatam ho gayi hai toh free karo
   const now = new Date();
   if (now > new Date(user.planEndDate)) {
     user.plan = 'free';
@@ -166,7 +176,6 @@ async function getUserRate(user) {
   const plans = await getPlans();
   const isFree = user.plan === 'free' || user.plan === 'demo';
   if (isFree) return plans.free?.rate || 0.0025;
-  // Legend = lifetime, no expiry check needed
   if (user.plan === 'legend') return plans.legend?.rate || 0.12;
   if (user.planEndDate && new Date() > new Date(user.planEndDate)) {
     return plans.free?.rate || 0.0025;
@@ -194,7 +203,7 @@ const generalLimiter = rateLimit({
 });
 const authLimiter = rateLimit({ 
   windowMs: 60 * 1000, 
-  max: 5, // 10 ki jagah 5 attempt per minute kar do
+  max: 5,
   message: { error: 'Too many attempts. Please wait 1 minute.' } 
 });
 const captchaLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Slow down! Too many captcha submissions.' } });
@@ -230,7 +239,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'TypeCaptchaToEarn API is running ✅' });
 });
 
-// ============ PUBLIC SETTINGS ============
+// ============ 🔥 PUBLIC SETTINGS (UPDATED with toggles) ============
 app.get('/api/settings/public', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -240,25 +249,36 @@ app.get('/api/settings/public', async (req, res) => {
     const marquee = await Settings.findOne({ key: 'marquee' }).lean();
     const ads = await Settings.findOne({ key: 'ads' }).lean();
     const adGate = await Settings.findOne({ key: 'adGate' }).lean();
-    const workAdGate = await Settings.findOne({ key: 'workAdGate' }).lean(); // 🔥 NEW
+    const workAdGate = await Settings.findOne({ key: 'workAdGate' }).lean();
+    const plansToggle = await Settings.findOne({ key: 'plansEnabled' }).lean();
+    const paymentToggle = await Settings.findOne({ key: 'paymentEnabled' }).lean();
     
     const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
     
     const adGateLink = adGate ? (adGate.value?.link || '') : '';
     
+    const plansEnabled = plansToggle ? plansToggle.value !== false : true;
+    const paymentEnabled = paymentToggle ? paymentToggle.value !== false : true;
+    
     res.json({ 
       marquee: marquee ? marquee.value : '', 
       ads: ads ? ads.value : [], 
       adGateLink: adGateLink,
       plans: plans,
-      workAdGate: workAdGate ? workAdGate.value : null // 🔥 NEW
+      workAdGate: workAdGate ? workAdGate.value : null,
+      plansEnabled: plansEnabled,
+      paymentEnabled: paymentEnabled
     });
   } catch (err) {
     console.error('Public settings error:', err);
-    res.json({ marquee: '', ads: [], adGateLink: '', plans: DEFAULT_PLANS, workAdGate: null }); // 🔥 NEW
+    res.json({ 
+      marquee: '', ads: [], adGateLink: '', plans: DEFAULT_PLANS, workAdGate: null,
+      plansEnabled: true, paymentEnabled: true
+    });
   }
 });
+
 // ============ PUBLIC PLANS ============
 app.get('/api/plans', async (req, res) => {
   try {
@@ -269,10 +289,13 @@ app.get('/api/plans', async (req, res) => {
     const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
     
-    res.json({ success: true, plans });
+    // 🔥 NEW: check enabled
+    const plansEnabled = await isPlansEnabled();
+    
+    res.json({ success: true, plans, plansEnabled });
   } catch (err) {
     console.error('Public plans error:', err);
-    res.status(500).json({ error: 'Server error', plans: DEFAULT_PLANS });
+    res.status(500).json({ error: 'Server error', plans: DEFAULT_PLANS, plansEnabled: true });
   }
 });
 
@@ -282,10 +305,22 @@ app.get('/api/payment-settings', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     
+    // 🔥 NEW: check enabled
+    const paymentEnabled = await isPaymentEnabled();
+    
+    if (!paymentEnabled) {
+      return res.json({ 
+        paymentEnabled: false,
+        message: 'Payment system is temporarily disabled. Please try again later.',
+        upiId: '', upiName: '', whatsapp: ''
+      });
+    }
+    
     const settings = await Settings.findOne({ key: 'payment' }).lean();
-    res.json(settings ? settings.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' });
+    const paymentData = settings ? settings.value : { upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' };
+    res.json({ ...paymentData, paymentEnabled: true });
   } catch (err) {
-    res.json({ upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511' });
+    res.json({ upiId: 'example@upi', upiName: 'TypeCaptchaToEarn', whatsapp: '919550104511', paymentEnabled: true });
   }
 });
 
@@ -476,9 +511,20 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
   }
 });
 
-// ============ PURCHASE PREMIUM ============
+// ============ 🔥 PURCHASE PREMIUM (with toggle checks) ============
 app.post('/api/purchase-premium', authUser, async (req, res) => {
   try {
+    // 🔥 NEW: Check plans enabled
+    const plansEnabled = await isPlansEnabled();
+    if (!plansEnabled) {
+      return res.status(403).json({ error: 'Premium plans are temporarily disabled. Please try again later.' });
+    }
+    // 🔥 NEW: Check payment enabled
+    const paymentEnabled = await isPaymentEnabled();
+    if (!paymentEnabled) {
+      return res.status(403).json({ error: 'Payment system is temporarily disabled. Please try again later.' });
+    }
+
     const { planId } = req.body;
     const plans = await getPlans();
     if (!plans[planId] || planId === 'free' || planId === 'demo') return res.status(400).json({ error: 'Invalid plan' });
@@ -494,9 +540,15 @@ app.post('/api/purchase-premium', authUser, async (req, res) => {
   }
 });
 
-// ============ MARK PAYMENT DONE ============
+// ============ 🔥 MARK PAYMENT DONE (with toggle check) ============
 app.post('/api/mark-payment-done', authUser, async (req, res) => {
   try {
+    // 🔥 NEW: Check payment enabled
+    const paymentEnabled = await isPaymentEnabled();
+    if (!paymentEnabled) {
+      return res.status(403).json({ error: 'Payment system is temporarily disabled. Please try again later.' });
+    }
+
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.paymentMarked = true;
@@ -595,7 +647,7 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ UPDATE PLANS (UPDATED: 6 PLANS) ============
+// ============ UPDATE PLANS ============
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     let { plans } = req.body;
@@ -608,7 +660,6 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       plansObj = plans;
     }
     
-    // 🔥 UPDATED: Added diamond + legend to required
     const required = ['free', 'silver', 'gold', 'platinum', 'diamond', 'legend'];
     for (const pid of required) {
       const p = plansObj[pid];
@@ -626,7 +677,6 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
       plansObj[pid].period = p.period || (pid === 'free' ? 'Forever' : pid === 'legend' ? 'lifetime' : pid === 'diamond' ? 'year' : 'month');
       plansObj[pid].features = Array.isArray(p.features) ? p.features : [];
       
-      // 🔥 Duration preserve karo
       if (pid === 'diamond') plansObj[pid].duration = 365;
       if (pid === 'legend') plansObj[pid].duration = null;
     }
@@ -647,7 +697,7 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ APPROVE PLAN (UPDATED: Diamond = 365 days, Legend = Lifetime) ============
+// ============ APPROVE PLAN ============
 app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
     const { planId } = req.body;
@@ -660,16 +710,12 @@ app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
     let startFrom = now;
     if (user.plan === planId && user.planEndDate && new Date(user.planEndDate) > now) startFrom = new Date(user.planEndDate);
     
-    // 🔥 Duration logic
     let endDate = null;
     if (planId === 'legend') {
-      // Lifetime — no expiry
       endDate = null;
     } else if (planId === 'diamond') {
-      // 1 year = 365 days
       endDate = new Date(startFrom.getTime() + 365 * 24 * 60 * 60 * 1000);
     } else {
-      // Default: 30 days (Silver, Gold, Platinum)
       endDate = new Date(startFrom.getTime() + 30 * 24 * 60 * 60 * 1000);
     }
     
@@ -706,7 +752,7 @@ app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ SET PLAN (UPDATED: Diamond = 365 days, Legend = Lifetime) ============
+// ============ SET PLAN ============
 app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   try {
     const { plan } = req.body;
@@ -718,7 +764,7 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
     let endDate = null;
     if (!isFree) {
       if (plan === 'legend') {
-        endDate = null; // Lifetime
+        endDate = null;
       } else if (plan === 'diamond') {
         endDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
       } else {
@@ -967,7 +1013,7 @@ app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
   }
 });
 
-// ============ WORK AD GATE (NEW) ============
+// ============ WORK AD GATE ============
 app.post('/api/admin/settings/work-ad-gate', authAdmin, async (req, res) => {
   try {
     const { workAdGate } = req.body;
@@ -982,6 +1028,42 @@ app.post('/api/admin/settings/work-ad-gate', authAdmin, async (req, res) => {
     res.json({ success: true, message: 'Work Ad Gate saved successfully!' });
   } catch (err) {
     console.error('Work ad gate save error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ 🔥 NEW: PLANS ENABLE/DISABLE ============
+app.post('/api/admin/settings/plans-toggle', authAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const value = enabled !== false;
+    await Settings.findOneAndUpdate(
+      { key: 'plansEnabled' },
+      { key: 'plansEnabled', value: value },
+      { upsert: true, new: true }
+    );
+    console.log(`🔘 Plans ${value ? 'ENABLED' : 'DISABLED'} by admin`);
+    res.json({ success: true, enabled: value, message: `Plans ${value ? 'enabled' : 'disabled'}!` });
+  } catch (err) {
+    console.error('Plans toggle error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ============ 🔥 NEW: PAYMENT ENABLE/DISABLE ============
+app.post('/api/admin/settings/payment-toggle', authAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const value = enabled !== false;
+    await Settings.findOneAndUpdate(
+      { key: 'paymentEnabled' },
+      { key: 'paymentEnabled', value: value },
+      { upsert: true, new: true }
+    );
+    console.log(`🔘 Payment ${value ? 'ENABLED' : 'DISABLED'} by admin`);
+    res.json({ success: true, enabled: value, message: `Payment ${value ? 'enabled' : 'disabled'}!` });
+  } catch (err) {
+    console.error('Payment toggle error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -1186,7 +1268,6 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     user.planEndDate = null;
     user.pendingPlan = null;
     
-    // 🔥 YEH LINE CHANGE KARNI HAI
     user.subscriptionExpired = false; 
     user.expiredAt = null;
     
@@ -1197,6 +1278,7 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     res.json({ success: true, message: `${user.name}'s premium plan revoked. Reverted to Free plan.` });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
+
 // ============ START SERVER ============
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
