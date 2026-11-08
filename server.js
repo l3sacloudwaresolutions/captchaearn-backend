@@ -9,6 +9,14 @@ require('dotenv').config();
 const User = require('./models/User');
 const Withdrawal = require('./models/Withdrawal');
 const Settings = require('./models/Settings');
+// ============ 🔥 IST TIMEZONE HELPER ============
+function toISTDateString(date) {
+  if (!date) return null;
+  const d = new Date(date);
+  const istOffset = 5.5 * 60 * 60 * 1000; // +5:30
+  const istDate = new Date(d.getTime() + istOffset);
+  return istDate.toISOString().split('T')[0]; // "2025-11-08"
+}
 
 const app = express();
 
@@ -379,10 +387,12 @@ app.post('/api/login', async (req, res) => {
 
     await checkAndUpdateSubscription(user);
 
-    const today = new Date().toDateString();
-    const lastActive = user.lastActive ? new Date(user.lastActive).toDateString() : null;
+         // 🔥 FIXED: IST-based streak calculation
+    const today = toISTDateString(new Date());
+    const lastActive = toISTDateString(user.lastActive);
+    const yesterday = toISTDateString(new Date(Date.now() - 86400000));
+    
     if (lastActive !== today) {
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
       user.streak = (lastActive === yesterday) ? (user.streak || 0) + 1 : 1;
       user.lastActive = new Date();
       await user.save();
