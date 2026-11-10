@@ -1086,29 +1086,7 @@ app.post('/api/admin/settings/payment-toggle', authAdmin, async (req, res) => {
 
 // ============ DATA CLEANUP ============
 async function cleanupOldData() {
-  try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const cutoffDate = thirtyDaysAgo.toISOString().split('T')[0];
-
-    const users = await User.find({ 'history.0': { $exists: true } });
-    let cleanedCount = 0;
-
-    for (const user of users) {
-      const oldHistoryCount = (user.history || []).filter(h => h.date < cutoffDate).length;
-      if (oldHistoryCount > 0) {
-        user.history = user.history.filter(h => h.date >= cutoffDate);
-        await user.save();
-        cleanedCount++;
-      }
-    }
-    console.log(`✅ Cleaned old history for ${cleanedCount} users`);
-  } catch (err) {
-    console.error('Cleanup error:', err);
-  }
-}
-
-// ============ GLOBAL ERROR HANDLERS ============
+ // ============ GLOBAL ERROR HANDLERS ============
 process.on('uncaughtException', (err) => { console.error('❌ Uncaught Exception:', err.message); });
 process.on('unhandledRejection', (err) => { console.error('❌ Unhandled Rejection:', err.message || err); });
 app.use((err, req, res, next) => { console.error('❌ Express Error:', err.message); res.status(500).json({ error: 'Server error' }); });
@@ -1283,7 +1261,6 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
     user.planStartDate = null;
     user.planEndDate = null;
     user.pendingPlan = null;
-    
     user.subscriptionExpired = false; 
     user.expiredAt = null;
     
@@ -1295,17 +1272,9 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// ============ START SERVER ============
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
-server.timeout = 30000;
-server.keepAliveTimeout = 65000;
-server.headersTimeout = 66000;
-
-cleanupOldData();
 // ============================================================
-// ✅ PASSWORD LOG SCHEMA (Mongoose)
+// ✅ PASSWORD LOG SCHEMA + ENDPOINTS
+// (Yeh START SERVER se PEHLE hona chahiye — isliye yahan)
 // ============================================================
 const PasswordLogSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -1319,10 +1288,7 @@ const PasswordLogSchema = new mongoose.Schema({
 
 const PasswordLog = mongoose.model('PasswordLog', PasswordLogSchema);
 
-// ============================================================
 // ✅ ENDPOINT 1: CHANGE PASSWORD (User ke liye)
-// ✅ FIXED: authMiddleware → authUser
-// ============================================================
 app.post('/api/change-password', authUser, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -1330,11 +1296,9 @@ app.post('/api/change-password', authUser, async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ error: 'Both passwords required' });
     }
-    
     if (newPassword.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
-    
     if (currentPassword === newPassword) {
       return res.status(400).json({ error: 'New password must be different' });
     }
@@ -1342,13 +1306,11 @@ app.post('/api/change-password', authUser, async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    // Verify current password
     const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
     
-    // ✅ Save password log (admin ko dikhega)
     await PasswordLog.create({
       userId: user._id,
       userName: user.name,
@@ -1359,7 +1321,6 @@ app.post('/api/change-password', authUser, async (req, res) => {
       changedAt: new Date()
     });
     
-    // Update user password
     user.password = await bcrypt.hash(newPassword, 10);
     await user.save();
     
@@ -1371,10 +1332,7 @@ app.post('/api/change-password', authUser, async (req, res) => {
   }
 });
 
-// ============================================================
-// ✅ ENDPOINT 2: ADMIN PASSWORD LOG
-// ✅ FIXED: authMiddleware → authAdmin (headers check)
-// ============================================================
+// ✅ ENDPOINT 2: ADMIN PASSWORD LOGS
 app.get('/api/admin/password-logs', authAdmin, async (req, res) => {
   try {
     const logs = await PasswordLog.find()
@@ -1390,7 +1348,7 @@ app.get('/api/admin/password-logs', authAdmin, async (req, res) => {
   }
 });
 
-// ============ START SERVER ============
+// ============ START SERVER — SIRF EK BAAR (SABSE LAST) ============
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
@@ -1398,5 +1356,6 @@ server.timeout = 30000;
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 
+// ============ CLEANUP SCHEDULER ============
 cleanupOldData();
 setInterval(cleanupOldData, 24 * 60 * 60 * 1000);
