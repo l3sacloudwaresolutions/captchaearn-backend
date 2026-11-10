@@ -482,14 +482,12 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
       return res.status(429).json({ error: `Daily limit (${dailyLimit} captchas) reached! Upgrade to Premium for unlimited captchas.`, limitReached: true });
     }
 
-   // 🔥 STRICT CASE: Free user = case-insensitive, baaki sab = case-sensitive
+  // 🔥 STRICT CASE: Sirf Free/Demo case-insensitive, baaki sabhi plans strict
 let isCorrect;
 if (user.plan === 'free' || user.plan === 'demo') {
-  // Free user — case-insensitive (jaise pehle tha)
-  isCorrect = String(userAnswer).trim().toUpperCase() === String(correctAnswer).trim().toUpperCase();
+  isCorrect = String(userAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
 } else {
-  // Gold, Platinum, Diamond, Legend — exact match (case-sensitive)
-  isCorrect = String(userAnswer).trim() === String(correctAnswer).trim();
+  isCorrect = String(userAnswer || '').trim() === String(correctAnswer || '').trim();
 }
 
     user.totalSolved++;
