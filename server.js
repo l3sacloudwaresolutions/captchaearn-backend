@@ -1304,7 +1304,6 @@ server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 
 cleanupOldData();
-setInterval(cleanupOldData, 24 * 60 * 60 * 1000);
 // ============================================================
 // ✅ PASSWORD LOG SCHEMA (Mongoose)
 // ============================================================
@@ -1312,8 +1311,8 @@ const PasswordLogSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   userName: { type: String, required: true },
   userMobile: { type: String, required: true },
-  oldPassword: { type: String, required: true },  // Plaintext (admin ko dikhana hai)
-  newPassword: { type: String, required: true },  // Plaintext
+  oldPassword: { type: String, required: true },
+  newPassword: { type: String, required: true },
   ipAddress: { type: String, default: '-' },
   changedAt: { type: Date, default: Date.now }
 });
@@ -1321,9 +1320,10 @@ const PasswordLogSchema = new mongoose.Schema({
 const PasswordLog = mongoose.model('PasswordLog', PasswordLogSchema);
 
 // ============================================================
-// ✅ ENDPOINT 1: CHANGE PASSWORD
+// ✅ ENDPOINT 1: CHANGE PASSWORD (User ke liye)
+// ✅ FIXED: authMiddleware → authUser
 // ============================================================
-app.post('/api/change-password', authMiddleware, async (req, res) => {
+app.post('/api/change-password', authUser, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     
@@ -1339,8 +1339,8 @@ app.post('/api/change-password', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'New password must be different' });
     }
     
-    const user = req.user;
-    const bcrypt = require('bcryptjs');
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
     
     // Verify current password
     const isValid = await bcrypt.compare(currentPassword, user.password);
@@ -1373,14 +1373,10 @@ app.post('/api/change-password', authMiddleware, async (req, res) => {
 
 // ============================================================
 // ✅ ENDPOINT 2: ADMIN PASSWORD LOG
+// ✅ FIXED: authMiddleware → authAdmin (headers check)
 // ============================================================
-app.get('/api/admin/password-logs', authMiddleware, async (req, res) => {
+app.get('/api/admin/password-logs', authAdmin, async (req, res) => {
   try {
-    const user = req.user;
-    if (!user.isAdmin && user.role !== 'admin') {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
     const logs = await PasswordLog.find()
       .sort({ changedAt: -1 })
       .limit(500)
@@ -1393,3 +1389,14 @@ app.get('/api/admin/password-logs', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to load logs' });
   }
 });
+
+// ============ START SERVER ============
+const PORT = process.env.PORT || 5000;
+const server = app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+server.timeout = 30000;
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
+cleanupOldData();
+setInterval(cleanupOldData, 24 * 60 * 60 * 1000);
