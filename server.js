@@ -9,13 +9,14 @@ require('dotenv').config();
 const User = require('./models/User');
 const Withdrawal = require('./models/Withdrawal');
 const Settings = require('./models/Settings');
+
 // ============ 🔥 IST TIMEZONE HELPER ============
 function toISTDateString(date) {
   if (!date) return null;
   const d = new Date(date);
-  const istOffset = 5.5 * 60 * 60 * 1000; // +5:30
+  const istOffset = 5.5 * 60 * 60 * 1000;
   const istDate = new Date(d.getTime() + istOffset);
-  return istDate.toISOString().split('T')[0]; // "2025-11-08"
+  return istDate.toISOString().split('T')[0];
 }
 
 const app = express();
@@ -117,7 +118,7 @@ async function getPlans() {
   }
 }
 
-// ============ 🔥 NEW HELPER: CHECK PLANS & PAYMENT ENABLED ============
+// ============ HELPER: CHECK PLANS & PAYMENT ENABLED ============
 async function isPlansEnabled() {
   try {
     const toggle = await Settings.findOne({ key: 'plansEnabled' }).lean();
@@ -247,7 +248,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'TypeCaptchaToEarn API is running ✅' });
 });
 
-// ============ 🔥 PUBLIC SETTINGS (UPDATED with toggles) ============
+// ============ PUBLIC SETTINGS ============
 app.get('/api/settings/public', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -297,7 +298,6 @@ app.get('/api/plans', async (req, res) => {
     const plansDoc = await Settings.findOne({ key: 'plans' }).lean();
     const plans = (plansDoc && plansDoc.value) ? plansDoc.value : DEFAULT_PLANS;
     
-    // 🔥 NEW: check enabled
     const plansEnabled = await isPlansEnabled();
     
     res.json({ success: true, plans, plansEnabled });
@@ -313,7 +313,6 @@ app.get('/api/payment-settings', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     
-    // 🔥 NEW: check enabled
     const paymentEnabled = await isPaymentEnabled();
     
     if (!paymentEnabled) {
@@ -387,7 +386,6 @@ app.post('/api/login', async (req, res) => {
 
     await checkAndUpdateSubscription(user);
 
-         // 🔥 FIXED: IST-based streak calculation
     const today = toISTDateString(new Date());
     const lastActive = toISTDateString(user.lastActive);
     const yesterday = toISTDateString(new Date(Date.now() - 86400000));
@@ -482,13 +480,12 @@ app.post('/api/submit-captcha', authUser, async (req, res) => {
       return res.status(429).json({ error: `Daily limit (${dailyLimit} captchas) reached! Upgrade to Premium for unlimited captchas.`, limitReached: true });
     }
 
-  // 🔥 STRICT CASE: Sirf Free/Demo case-insensitive, baaki sabhi plans strict
-let isCorrect;
-if (user.plan === 'free' || user.plan === 'demo') {
-  isCorrect = String(userAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
-} else {
-  isCorrect = String(userAnswer || '').trim() === String(correctAnswer || '').trim();
-}
+    let isCorrect;
+    if (user.plan === 'free' || user.plan === 'demo') {
+      isCorrect = String(userAnswer || '').trim().toUpperCase() === String(correctAnswer || '').trim().toUpperCase();
+    } else {
+      isCorrect = String(userAnswer || '').trim() === String(correctAnswer || '').trim();
+    }
 
     user.totalSolved++;
     user.todayCaptchas++;
@@ -527,15 +524,13 @@ if (user.plan === 'free' || user.plan === 'demo') {
   }
 });
 
-// ============ 🔥 PURCHASE PREMIUM (with toggle checks) ============
+// ============ PURCHASE PREMIUM ============
 app.post('/api/purchase-premium', authUser, async (req, res) => {
   try {
-    // 🔥 NEW: Check plans enabled
     const plansEnabled = await isPlansEnabled();
     if (!plansEnabled) {
       return res.status(403).json({ error: 'Premium plans are temporarily disabled. Please try again later.' });
     }
-    // 🔥 NEW: Check payment enabled
     const paymentEnabled = await isPaymentEnabled();
     if (!paymentEnabled) {
       return res.status(403).json({ error: 'Payment system is temporarily disabled. Please try again later.' });
@@ -556,10 +551,9 @@ app.post('/api/purchase-premium', authUser, async (req, res) => {
   }
 });
 
-// ============ 🔥 MARK PAYMENT DONE (with toggle check) ============
+// ============ MARK PAYMENT DONE ============
 app.post('/api/mark-payment-done', authUser, async (req, res) => {
   try {
-    // 🔥 NEW: Check payment enabled
     const paymentEnabled = await isPaymentEnabled();
     if (!paymentEnabled) {
       return res.status(403).json({ error: 'Payment system is temporarily disabled. Please try again later.' });
@@ -663,7 +657,6 @@ app.get('/api/admin/plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ UPDATE PLANS ============
 app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   try {
     let { plans } = req.body;
@@ -713,7 +706,6 @@ app.post('/api/admin/update-plans', authAdmin, async (req, res) => {
   }
 });
 
-// ============ APPROVE PLAN ============
 app.post('/api/admin/approve-plan/:id', authAdmin, async (req, res) => {
   try {
     const { planId } = req.body;
@@ -768,7 +760,6 @@ app.post('/api/admin/reject-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ SET PLAN ============
 app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   try {
     const { plan } = req.body;
@@ -795,7 +786,6 @@ app.post('/api/admin/set-plan/:id', authAdmin, async (req, res) => {
   }
 });
 
-// ============ ADMIN: ADD BONUS ============
 app.post('/api/admin/add-bonus/:id', authAdmin, async (req, res) => {
   try {
     const { amount, reason } = req.body;
@@ -1029,7 +1019,6 @@ app.post('/api/admin/settings/ad-gate', authAdmin, async (req, res) => {
   }
 });
 
-// ============ WORK AD GATE ============
 app.post('/api/admin/settings/work-ad-gate', authAdmin, async (req, res) => {
   try {
     const { workAdGate } = req.body;
@@ -1048,7 +1037,6 @@ app.post('/api/admin/settings/work-ad-gate', authAdmin, async (req, res) => {
   }
 });
 
-// ============ 🔥 NEW: PLANS ENABLE/DISABLE ============
 app.post('/api/admin/settings/plans-toggle', authAdmin, async (req, res) => {
   try {
     const { enabled } = req.body;
@@ -1066,7 +1054,6 @@ app.post('/api/admin/settings/plans-toggle', authAdmin, async (req, res) => {
   }
 });
 
-// ============ 🔥 NEW: PAYMENT ENABLE/DISABLE ============
 app.post('/api/admin/settings/payment-toggle', authAdmin, async (req, res) => {
   try {
     const { enabled } = req.body;
@@ -1086,7 +1073,29 @@ app.post('/api/admin/settings/payment-toggle', authAdmin, async (req, res) => {
 
 // ============ DATA CLEANUP ============
 async function cleanupOldData() {
- // ============ GLOBAL ERROR HANDLERS ============
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const cutoffDate = thirtyDaysAgo.toISOString().split('T')[0];
+
+    const users = await User.find({ 'history.0': { $exists: true } });
+    let cleanedCount = 0;
+
+    for (const user of users) {
+      const oldHistoryCount = (user.history || []).filter(h => h.date < cutoffDate).length;
+      if (oldHistoryCount > 0) {
+        user.history = user.history.filter(h => h.date >= cutoffDate);
+        await user.save();
+        cleanedCount++;
+      }
+    }
+    console.log(`✅ Cleaned old history for ${cleanedCount} users`);
+  } catch (err) {
+    console.error('Cleanup error:', err);
+  }
+}
+
+// ============ GLOBAL ERROR HANDLERS ============
 process.on('uncaughtException', (err) => { console.error('❌ Uncaught Exception:', err.message); });
 process.on('unhandledRejection', (err) => { console.error('❌ Unhandled Rejection:', err.message || err); });
 app.use((err, req, res, next) => { console.error('❌ Express Error:', err.message); res.status(500).json({ error: 'Server error' }); });
@@ -1274,7 +1283,6 @@ app.post('/api/admin/revoke-plan/:id', authAdmin, async (req, res) => {
 
 // ============================================================
 // ✅ PASSWORD LOG SCHEMA + ENDPOINTS
-// (Yeh START SERVER se PEHLE hona chahiye — isliye yahan)
 // ============================================================
 const PasswordLogSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
